@@ -26,7 +26,7 @@ is.mito <- grepl("^MT-", rownames(sce))
 qcstats <- perCellQCMetrics(sce, subsets=list(Mito=is.mito))
 filtered <- quickPerCellQC(qcstats, percent_subsets="subsets_Mito_percent")
 sce <- sce[, !filtered$discard]
-saveRDS(sce,file="osca/data/Masco2015_retina_filtered_countmatrix.rds")
+saveRDS(sce,file="~kims/github/sandbox/osca/data/Masco2015_retina_filtered_countmatrix.rds")
 ```
 
 ```{r norm-counts}

@@ -1,0 +1,81 @@
+---
+title: "Visualize single-cell RNA seq"
+author: "ks"
+date: "2023-05-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+if (!require(scRNAseq)) BiocManager::install("scRNAseq")
+if (!require(scater)) BiocManager::install("scater")
+if (!require(scran)) BiocManager::install("scran")
+```
+
+http://bioconductor.org/books/3.17/OSCA.intro/analysis-overview.html#quick-start-simple
+
+Load the data from the scRNAseq library & discard low quality cells.
+```{r load-cleaned-data}
+con <- gzfile("~kims/github/sandbox/osca/data/Masco2015_retina_filtered_countmatrix.rds")
+sce <- readRDS(con)
+close(con)
+sce
+```
+
+This object is an entire database, formatted in an object of the class: SingleCellExperiment. The expression data is in a matrix of `r nrow(sce)` genes and `r ncol(sce)` cells.
+
+What does the counts matrix look like?  It has lots of 0 counts, where to save space the 0 counts are not recorded. We call this a sparse matrix. Here are the data for the first 5 rows and columns (genes and cells). 
+```{r counts}
+counts(sce)[1:5,1:5]
+```
+
+To smooth out the sparse signals, we select the most variable genes
+
+First, we normalize the sequence counts across the cells
+```{r norm-counts}
+# Normalization.
+sce <- logNormCounts(sce)
+logcounts(sce)[1:5,1:5]
+```
+
+Select the top 10% most variable genes, run PCA on the selected genes and save the top 25 dimensions. We clusters the samples using the top 25 PCs and label the samples by their identified subgroups. To visualize the clusters we apply UMAP to the 25 PCs and color the samples by their identified clusters.
+```{r feat-selection}
+# Feature selection.
+library(scran)
+dec <- modelGeneVar(sce)
+hvg <- getTopHVGs(dec, p = 0.1)
+
+# PCA.
+library(scater)
+set.seed(1234)
+sce <- runPCA(sce, ncomponents=25, subset_row=hvg)
+
+# Clustering.
+library(bluster)
+colLabels(sce) <- clusterCells(sce, use.dimred='PCA',
+    BLUSPARAM=NNGraphParam(cluster.fun="louvain"))    
+```
+
+```{r viz-UMAP, fig.cap = 'UMAP plot of the retina dataset, where each point is a cell and is colored by the assigned cluster identity.'}
+# Visualization.
+sce <- runUMAP(sce, dimred = 'PCA')
+plotUMAP(sce, colour_by="label")
+```
+
+```{r viz-TSNE, fig.cap = 'TSNE plot of the retina dataset, where each point is a cell and is colored by the assigned cluster identity.'}
+# Visualization.
+sce <- runTSNE(sce, dimred = 'PCA')
+plotTSNE(sce, colour_by="label")
+```
+
+```{r sce-obj}
+sce
+```
+
+```{r sI}
+sessionInfo()
+```
+
+Can also try this for the pmbc3k dataset:
+http://bioconductor.org/books/3.17/OSCA.multisample/integrating-datasets.html#quick-start
+

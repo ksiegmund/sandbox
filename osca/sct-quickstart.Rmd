@@ -1,0 +1,74 @@
+---
+title: "OSCA: Quick Start to single-cell RNA seq"
+author: "ks"
+date: "2023-05-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+if (!require(scRNAseq)) BiocManager::install("scRNAseq")
+if (!require(scater)) BiocManager::install("scater")
+if (!require(scran)) BiocManager::install("scran")
+
+```
+
+http://bioconductor.org/books/3.17/OSCA.intro/analysis-overview.html#quick-start-simple
+
+Load the data from the scRNAseq library & discard low quality cells.
+```{r loaddata-qc-save}
+library(scRNAseq)
+sce <- MacoskoRetinaData()
+
+# Quality control (using mitochondrial genes).
+library(scater)
+is.mito <- grepl("^MT-", rownames(sce))
+qcstats <- perCellQCMetrics(sce, subsets=list(Mito=is.mito))
+filtered <- quickPerCellQC(qcstats, percent_subsets="subsets_Mito_percent")
+sce <- sce[, !filtered$discard]
+saveRDS(sce,file="osca/data/Masco2015_retina_filtered_countmatrix.rds")
+```
+
+```{r norm-counts}
+# Normalization.
+sce <- logNormCounts(sce)
+```
+
+```{r feat-selection}
+# Feature selection.
+library(scran)
+dec <- modelGeneVar(sce)
+hvg <- getTopHVGs(dec, prop=0.1)
+```
+
+```{r PCA}
+# PCA.
+library(scater)
+set.seed(1234)
+sce <- runPCA(sce, ncomponents=25, subset_row=hvg)
+```
+
+```{r cluster}
+# Clustering.
+library(bluster)
+colLabels(sce) <- clusterCells(sce, use.dimred='PCA',
+    BLUSPARAM=NNGraphParam(cluster.fun="louvain"))    
+```
+
+```{r viz-UMAP, UMAP plot of the retina dataset, where each point is a cell and is colored by the assigned cluster identity.}
+# Visualization.
+sce <- runUMAP(sce, dimred = 'PCA')
+plotUMAP(sce, colour_by="label")
+```
+
+```{r marker-detection}
+# Marker detection.
+markers <- findMarkers(sce, test.type="wilcox", direction="up", lfc=1)
+```
+
+```{r sI}
+sessionInfo()
+```
+
+Here's the pmbc3k dataset:
+http://bioconductor.org/books/3.17/OSCA.multisample/integrating-datasets.html#quick-start

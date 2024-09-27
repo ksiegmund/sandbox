@@ -93,7 +93,12 @@ Let's overlap sample JN(N1) DNAm values with the TSS regions and summarize.
 First read in the beta values from sample JN.
 ```{r read-data}
 readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
-betajn <- import(file.path(readdir,"wg_s1c.bed"), format = "BED")
+betajn <- import(file.path(readdir,"wg_s4c.bed"), format = "BED")
+```
+Let's read so it's not a Genomic ranges. Go find code from PM566.
+```{r data.table}
+library(data.table)
+fin <- fread(file.path(readdir,"wg_s1c.bed"))
 ```
 
 

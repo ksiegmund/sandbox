@@ -1,0 +1,104 @@
+---
+title: "DNAm summaries"
+author: "ks"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(GenomicFeatures)
+library(AnnotationDbi)
+library(rtracklayer)
+#BiocManager::install("TxDb.Hsapiens.UCSC.hg38.knownGene")
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+```
+
+Get transcription start sites:
+From ChatGPT
+```{r tss}
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+
+transcripts_gr <- transcripts(txdb)
+tss_gr <- resize(transcripts_gr, width = 1, fix = "start")
+tss_gr[1]
+start(tss_gr[1])
+
+
+# Map transcript IDs to gene IDs
+gene_tx_map <- AnnotationDbi::select(txdb, keys = as.character(transcripts_gr$tx_id), 
+                                     columns = "GENEID", keytype = "TXID")
+# Add gene IDs to the TSS GRanges object
+tss_gr$gene_id <- gene_tx_map$GENEID[match(as.character(transcripts_gr$tx_id),
+                                           gene_tx_map$TXID)]
+
+#Drop rows with missing geneids
+tss_gr <- tss_gr[!is.na(tss_gr$gene_id)]
+length(tss_gr)
+```
+
+These are for all transcripts. I want to reduce them to genes.
+
+First, restrict to chromosomes 1-22, X, Y.  I only want to select TSSs that are
+on the primary assembly.
+```{r remove_alt_chr}
+desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
+# Assuming your GRanges object is called granges_obj
+tss_gr <- tss_gr[seqnames(tss_gr) %in% desired_chromosomes]
+length(tss_gr)
+```
+Now we'll reduce these to genes.
+
+```{r pick-gene-tss}
+# Split the TSS by gene
+tss_by_gene <- split(tss_gr, tss_gr$gene_id)
+
+# Find the correct TSS considering strand
+min_tss_by_gene <- lapply(tss_by_gene, function(gr) {
+                    
+                      positive_strand <- gr[strand(gr) == "+"]
+                      negative_strand <- gr[strand(gr) == "-"]
+  
+        # Get minimum for positive strand and maximum for negative strand
+        pos_tss <- if (length(positive_strand) > 0)   positive_strand[which.min(start(positive_strand))] else NULL
+        neg_tss <- if (length(negative_strand) > 0) negative_strand[which.max(start(negative_strand))] else NULL
+  
+        # Return Grange for object that isn't NULL
+        if (!is.null(pos_tss)) return(pos_tss)
+        if (!is.null(neg_tss)) return(neg_tss) 
+        })
+
+# Use unlist to combine the GRanges elements into a single GRanges object
+min_tss_gr <- unlist(GRangesList(min_tss_by_gene))
+
+# View the result
+min_tss_gr
+```
+
+Is it correct to assume each gene is only on 1 strand? (I made that assumption)
+If I'm wrong, then I've saved the positive strand only.
+
+
+
+Now let's grab 500 bases upstream and downstream:
+```{r}
+# Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
+tss_resized <- resize(tss_gr, width = 1001, fix = "center")
+```
+
+Let's overlap sample JN(N1) DNAm values with the TSS regions and summarize.
+
+First read in the beta values from sample JN.
+```{r read-data}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+betajn <- import(file.path(readdir,"wg_s1c.bed"), format = "BED")
+```
+
+
+```{r sI}
+sessionInfo()
+```
+

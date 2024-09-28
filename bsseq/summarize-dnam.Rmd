@@ -77,6 +77,7 @@ min_tss_gr <- unlist(GRangesList(min_tss_by_gene))
 
 # View the result
 min_tss_gr
+#save(min_tss_gr,"min_tss_gr")
 ```
 
 Is it correct to assume each gene is only on 1 strand? (I made that assumption)
@@ -89,29 +90,23 @@ Now let's grab 500 bases upstream and downstream:
 tss_resized <- resize(min_tss_gr, width = 1001, fix = "center")
 ```
 
-Let's overlap sample JN(N1) DNAm values with the TSS regions and summarize.
+Let's overlap sample IN(N2) DNAm values with the TSS regions and summarize.
 
-First read in the beta values from sample JN.
-```{r read-data}
+First read in the beta values from sample IN.
+```{r bed_file_dirs}
 #readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
-#betajn <- import(file.path(readdir,"wg_s4c.bed"), format = "BED")
-```
-need to skip line 1 in the above .bed file.
-
-```{r read-drive}
 readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
-#list.files(readdir)
-
-betajn <- import(file.path(readdir,"wg_s4c.bed"), format = "BED")
 ```
 
-
-Let's read so it's not a Genomic ranges. Go find code from PM566.
+These files are not really BED files because of the header line. Read them in using data.table and create GRanges object.
 ```{r beta-n2}
 library(data.table)
+
 fin <- fread(file.path(readdir,"wg_s4c.bed"))
 nrow(fin)
 ```
+`r nrow(fin)` CpGs are covered in sample IN (aka N2).
+
 
 Make this a GRange object, and only save sites with coverage 5 or more reads.
 ```{r betan2_gr}
@@ -124,8 +119,49 @@ values(betan2) <- DataFrame(beta = fin$V4,
 betan2 <- betan2[values(betan2)$depth > 4]
 length(betan2)
 ```
-OK. That's still a lot of CpGs!
+`r length(betan2)` CpGs (`r round(length(betan2)/nrow(fin),3)*100` percent) are covered by 5 or more reads.
 
+Wow. That's still a lot of CpGs!
+
+Now let's save the CpGs that are in my TSS 1001 bp windows.
+In doing this, I discovered I have overlapping TSS windows.
+Let's see how close some of the TSSs are. I can tell that
+the intervals for TSS in rows 2 & 3 will overlap. 
+```{r}
+sort(min_tss_gr)[1:4]
+```
+
+
+```{r overlap}
+tss_resized <- sort(tss_resized)
+fO <- findOverlaps(betan2,tss_resized)
+fO
+```
+number of CpGs in intervals: `r length(fO)`
+number of unique CpGs in intervals: `r length(unique(queryHits(fO)))`
+
+How are these distributed across different TSS intervals?
+
+```{r describe-fO}
+length(fO)
+
+table(table(queryHits(fO)))
+# Split the DNAm data by TSSs
+#betan2_by_tss <- split(tss_gr, tss_gr$gene_id)
+```
+
+953369 are in 1 TSS interval  
+163955 are in 2 TSS intervals  
+ 12807 are in 3 TSS intervals. 
+ ...  
+ 
+How do I merge these GRange objects?
+
+```{r}
+filt <- intersect(betan2,tss_resized,ignore.strand=TRUE)
+length(filt)
+# why is this shorter than the unique CpG sites in intervals?
+```
 
 
 ```{r sI}

@@ -15,6 +15,7 @@ library(AnnotationDbi)
 library(rtracklayer)
 #BiocManager::install("TxDb.Hsapiens.UCSC.hg38.knownGene")
 library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(data.table)
 ```
 
 Get transcription start sites:
@@ -92,14 +93,39 @@ Let's overlap sample JN(N1) DNAm values with the TSS regions and summarize.
 
 First read in the beta values from sample JN.
 ```{r read-data}
-readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+#readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+#betajn <- import(file.path(readdir,"wg_s4c.bed"), format = "BED")
+```
+need to skip line 1 in the above .bed file.
+
+```{r read-drive}
+readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
+#list.files(readdir)
+
 betajn <- import(file.path(readdir,"wg_s4c.bed"), format = "BED")
 ```
+
+
 Let's read so it's not a Genomic ranges. Go find code from PM566.
-```{r data.table}
+```{r beta-n2}
 library(data.table)
-fin <- fread(file.path(readdir,"wg_s1c.bed"))
+fin <- fread(file.path(readdir,"wg_s4c.bed"))
+nrow(fin)
 ```
+
+Make this a GRange object, and only save sites with coverage 5 or more reads.
+```{r betan2_gr}
+betan2 <- GRanges(seqnames = fin$V1,
+                   IRanges(start = fin$V2,width=1))
+values(betan2) <- DataFrame(beta = fin$V4,
+                            depth = fin$V5,
+                                m = fin$V6,
+                                u = fin$V7)
+betan2 <- betan2[values(betan2)$depth > 4]
+length(betan2)
+```
+OK. That's still a lot of CpGs!
+
 
 
 ```{r sI}

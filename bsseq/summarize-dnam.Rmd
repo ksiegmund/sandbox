@@ -18,118 +18,27 @@ library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 library(data.table)
 ```
 
-Get transcription start sites:
-From ChatGPT
-```{r tss}
-txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+TASK: Overlap Sample DNAm values with the TSS regions and compute average DNAm at each site by stran, and plot it.   
 
-transcripts_gr <- transcripts(txdb)
-tss_gr <- resize(transcripts_gr, width = 1, fix = "start")
-tss_gr[1]
-start(tss_gr[1])
-
-
-# Map transcript IDs to gene IDs
-gene_tx_map <- AnnotationDbi::select(txdb, keys = as.character(transcripts_gr$tx_id), 
-                                     columns = "GENEID", keytype = "TXID")
-# Add gene IDs to the TSS GRanges object
-tss_gr$gene_id <- gene_tx_map$GENEID[match(as.character(transcripts_gr$tx_id),
-                                           gene_tx_map$TXID)]
-
-#Drop rows with missing geneids
-tss_gr <- tss_gr[!is.na(tss_gr$gene_id)]
-length(tss_gr)
-```
-
-These are for all transcripts. I want to reduce them to genes.
-
-First, restrict to chromosomes 1-22, X, Y.  I only want to select TSSs that are
-on the primary assembly.
-```{r remove_alt_chr}
-desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
-# Assuming your GRanges object is called granges_obj
-tss_gr <- tss_gr[seqnames(tss_gr) %in% desired_chromosomes]
-length(tss_gr)
-```
-Now we'll reduce these to genes.
-
-```{r pick-gene-tss}
-# Split the TSS by gene
-tss_by_gene <- split(tss_gr, tss_gr$gene_id)
-
-# Find the correct TSS considering strand
-min_tss_by_gene <- lapply(tss_by_gene, function(gr) {
-                    
-                      positive_strand <- gr[strand(gr) == "+"]
-                      negative_strand <- gr[strand(gr) == "-"]
-  
-        # Get minimum for positive strand and maximum for negative strand
-        pos_tss <- if (length(positive_strand) > 0)   positive_strand[which.min(start(positive_strand))] else NULL
-        neg_tss <- if (length(negative_strand) > 0) negative_strand[which.max(start(negative_strand))] else NULL
-  
-        # Return Grange for object that isn't NULL
-        if (!is.null(pos_tss)) return(pos_tss)
-        if (!is.null(neg_tss)) return(neg_tss) 
-        })
-
-# Use unlist to combine the GRanges elements into a single GRanges object
-min_tss_gr <- unlist(GRangesList(min_tss_by_gene))
-
-# View the result
-min_tss_gr
-#save(min_tss_gr,"min_tss_gr")
-```
-
-Is it correct to assume each gene is only on 1 strand? (I made that assumption)
-If I'm wrong, then I've saved the positive strand only.
-
-
-Now let's grab 500 bases upstream and downstream:
-```{r}
+1. Load the saved TSSs and extend interval to 500 bases up- and downstream.
+```{r tss-data}
+load("min_tss_gr")
+min_tss_gr <- sort(min_tss_gr)
 # Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
 tss_resized <- resize(min_tss_gr, width = 1001, fix = "center")
 ```
 
-Let's overlap sample IN(N2) DNAm values with the TSS regions and summarize.
-
-First read in the beta values from sample IN.
-```{r bed_file_dirs}
-#readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
-readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
+2. Now grab a DNA methylation dataset. The file below
+is setup to read sample IN (aka N2) and save all CpGs that have coverge of 5 or more reads.
+```{r dnam-data}
+rmarkdown::render("read-dnam-bedfiles.Rmd")
 ```
 
-These files are not really BED files because of the header line. Read them in using data.table and create GRanges object.
-```{r beta-n2}
-library(data.table)
+We're starting with `r length(betan2)` measured CpGs.
+  
+3. Try overlapping my 2 GRange objects. 
 
-fin <- fread(file.path(readdir,"wg_s4c.bed"))
-nrow(fin)
-```
-`r nrow(fin)` CpGs are covered in sample IN (aka N2).
-
-
-Make this a GRange object, and only save sites with coverage 5 or more reads.
-```{r betan2_gr}
-betan2 <- GRanges(seqnames = fin$V1,
-                   IRanges(start = fin$V2,width=1))
-values(betan2) <- DataFrame(beta = fin$V4,
-                            depth = fin$V5,
-                                m = fin$V6,
-                                u = fin$V7)
-betan2 <- betan2[values(betan2)$depth > 4]
-length(betan2)
-```
-`r length(betan2)` CpGs (`r round(length(betan2)/nrow(fin),3)*100` percent) are covered by 5 or more reads.
-
-Wow. That's still a lot of CpGs!
-
-Now let's save the CpGs that are in my TSS 1001 bp windows.
-In doing this, I discovered I have overlapping TSS windows.
-Let's see how close some of the TSSs are. I can tell that
-the intervals for TSS in rows 2 & 3 will overlap. 
-```{r}
-sort(min_tss_gr)[1:4]
-```
+One thing I discovered is that I have overlapping TSS intervals.  Should I reduce them to non-overlapping intervals or keep their full overlapping lengths and allow some CpGs to map to multiple intervals? I will try the latter.
 
 
 ```{r overlap}
@@ -155,12 +64,18 @@ table(table(queryHits(fO)))
  12807 are in 3 TSS intervals. 
  ...  
  
-How do I merge these GRange objects?
+Can I save the queryHits(fO) rows of betan2? First, I want to give my CpGs an cpgid. I will get do this in 
+sequence order.
 
-```{r}
-filt <- intersect(betan2,tss_resized,ignore.strand=TRUE)
-length(filt)
-# why is this shorter than the unique CpG sites in intervals?
+```{r filt-cpgs}
+betan2 <- betan2[queryHits(fO)]
+filt.betan2
+```
+
+
+```{r filt-cpgs}
+filt.betan2 <- betan2[queryHits(fO)]
+filt.betan2
 ```
 
 

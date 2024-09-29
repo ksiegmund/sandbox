@@ -1,0 +1,64 @@
+---
+title: "Summarize DNAm and Plot"
+author: "ks"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+```
+
+# Compute Average DNAm by site across intervals
+
+
+```{r load-data}
+load("beta.by.region")
+
+Dt <- as.data.table(values(beta.by.region))
+Dt$pos <- start(beta.by.region) - 
+                values(beta.by.region)$tss500 + 1 - 500
+
+head(Dt)
+```
+
+Let's count the number of CpGs in each position, by strand.
+```{r}
+nobs<- table(Dt$pos,
+             Dt$tsstrand)
+head(nobs)
+```
+
+Distribution of counts in + strand: `r summary(nobs[,"+"])`  
+Distribution of counts in - strand: `r summary(nobs[,"-"])`
+
+How many intervals are on the plus strand and how many are on the minus strand?
+```{r Dt-counts}
+Dt[, .(unique_tss_count = uniqueN(tssgene_id)), by = tsstrand]
+```
+
+```{r avgbeta}
+avgbeta <- Dt[, .(avg_beta = mean(beta)), by = c("tsstrand","pos")]
+avgbeta <- avgbeta[order(tsstrand,pos)]
+avgbeta
+```
+
+```{r}
+ggplot(avgbeta) +
+        geom_point(aes(x=pos,y=avg_beta,color=tsstrand), alpha=0.3) +
+        geom_smooth(aes(x=pos,y=avg_beta,color=tsstrand)) +
+        facet_wrap(~tsstrand)
+```
+
+
+
+```{r sI}
+sessionInfo()
+```
+

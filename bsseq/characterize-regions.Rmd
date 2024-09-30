@@ -28,6 +28,7 @@ Dt$pos <- start(beta.by.region) -
 # add se(beta); squeeze beta value to avoid boundaries 0,1
 shrink_beta <- (Dt$beta - 0.5)*0.98 + 0.5
 Dt$seb   <- sqrt( shrink_beta * (1 - shrink_beta) / Dt$depth)
+Dt$wgt   <- 1/Dt$seb
 Dt$group <- ifelse(Dt$pos<0, 1,
                    ifelse(Dt$pos==0, 2, 3))
 head(Dt)
@@ -74,7 +75,8 @@ numCpGs <- Dt[, .(n_CpG = .N,
                   avg_beta = mean(beta), 
                   sd_depth = sd(depth),
                   Mtot = sum(m),
-                  MUtot = sum(depth)), 
+                  MUtot = sum(depth),
+                  TotWt = sum(wgt)),
                    by = c("tsstrand","tssgene_id","group")]
 numCpGs
 ```
@@ -94,12 +96,6 @@ cor.test(numCpGs$sd_depth,numCpGs$n_CpG)
 ```
 
 All these associations support regions with fewer CpGs, have higher average DNA methylation and more variation in read depth. These can confound the association of average DNA methylation by CpG position relative to TSS.
-
-The variation in depth makes me wonder about computing unweighted vs weighted average of betas in regions with fewer CpGs.
-
-
-This average beta does not take different coverage into account. Add weights to previous data set to get the weighted average. The estimates will be different if the coverage varies across the region.  If it's similar for all sites, the weights are also similar and the crude average is close to the weighted average.
-
 
 ```{r}
 table(numCpGs$group,numCpGs$tsstrand)
@@ -157,6 +153,13 @@ t.test(n_CpG ~ as.factor(group), subset = tsstrand =="+", data=dt_filtered)
 ```{r}
 t.test(n_CpG ~ as.factor(group), subset = tsstrand =="-", data=dt_filtered)
 ```
+
+
+The variation in depth makes me wonder about computing unweighted vs weighted average of betas in regions with fewer CpGs.
+
+
+This average beta does not take different coverage into account. Add weights to previous data set to get the weighted average. The estimates will be different if the coverage varies across the region.  If it's similar for all sites, the weights are also similar and the crude average is close to the weighted average.
+
 
 ```{r sI}
 sessionInfo()

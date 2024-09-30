@@ -77,7 +77,7 @@ min_tss_gr <- unlist(GRangesList(min_tss_by_gene))
 
 # View the result
 min_tss_gr
-#save(min_tss_gr,"min_tss_gr")
+save(min_tss_gr,"data/min_tss_gr")
 ```
 
 Is it correct to assume each gene is only on 1 strand? (I made that assumption)

@@ -53,7 +53,7 @@ length(tss_gr)
 ```
 Now we'll reduce these to genes.
 
-```{r pick-gene-tss}
+```{r pick-gene-tss, cache=TRUE}
 # Split the TSS by gene
 tss_by_gene <- split(tss_gr, tss_gr$gene_id)
 
@@ -77,7 +77,11 @@ min_tss_gr <- unlist(GRangesList(min_tss_by_gene))
 
 # View the result
 min_tss_gr
-save(min_tss_gr,"data/min_tss_gr")
+```
+
+
+```{r save-data}
+save(min_tss_gr,file="data/min_tss_gr.rda")
 ```
 
 Is it correct to assume each gene is only on 1 strand? (I made that assumption)

@@ -1,0 +1,95 @@
+---
+title: "Compare estimates of DNA methylation"
+author: "ks"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+```
+
+# Compute average DNA methylation upstream and downstream of TSS
+
+```{r load-data}
+load("data/beta.by.region.rda")
+
+Dt <- as.data.table(values(beta.by.region))
+Dt$pos <- start(beta.by.region) - 
+                values(beta.by.region)$tss500 + 1 - 501
+
+# add se(beta); squeeze beta value to avoid boundaries 0,1
+shrink_beta <- (Dt$beta - 0.5)*0.98 + 0.5
+Dt$seb   <- sqrt( shrink_beta * (1 - shrink_beta) / Dt$depth)
+Dt$invseb   <- 1/Dt$seb
+Dt$group <- ifelse(Dt$pos<0, 1,
+                   ifelse(Dt$pos==0, 2, 3))
+head(Dt)
+```
+
+```{r}
+#oDt <- Dt[order(tssgene_id,group),]
+sDt <- Dt[, .(Tot_wgt = sum(invseb)), by = c("tssgene_id","group")]
+                  
+merged_Dt <- merge(Dt,sDt, by = c("tssgene_id","group"),
+               all.x=TRUE)
+merged_Dt$wgt <- merged_Dt$invseb/merged_Dt$Tot_wgt
+print(merged_Dt)
+```
+
+
+Although computed from the data (5+ reads), we found fewer CpGs per position upstream of the TSS compared to downstream, which is consistent with lower CpG density regions and consequently higher DNA methylation. CpG density can confound any direct comparison of average DNA methylation between regions with different CpG density.
+
+What are the summaries of average DNA methylation in these 500 base pair intervals?
+1) Total M / Total read counts    (pool reads across CpGs)
+2) average beta                   (assumes equal read depth at each CpG)
+3) weighted average beta          (fixed effect average, weighting by inverse seb)
+
+Other summary statistics for each TSS interval: number of CpGs by group.
+\item Group 1 = -500 to -1 bp  
+\item Group 2 = TSS (0 bp)  
+\item Group 3 = 1 to 500 bp  
+```{r get_summaries_byTSSregion}
+merged_Dt <- merged_Dt[order(tsstrand,tssgene_id,group)]
+sum_by_region <- merged_Dt[, .(n_CpG = .N, 
+                  avg_beta = mean(beta), 
+                  sd_depth = sd(depth),
+                  Mtot = sum(m),
+                  MUtot = sum(depth),
+                  wgt_avg_beta = sum(beta*wgt)),
+                   by = c("tsstrand","tssgene_id","group")]
+sum_by_region$beta <- sum_by_region$Mtot/sum_by_region$MUtot
+sum_by_region
+```
+
+
+
+```{r}
+sum_by_region[, .( cor_b_avgb = cor(beta,avg_beta)), by = c("tsstrand","group")]
+```
+
+```{r}
+sum_by_region[, .( cor_b_wgt.avgb = cor(beta,wgt_avg_beta)), by = c("tsstrand","group")]
+```
+
+These averages have different numbers of CpGs, so we'd expect tighter correlations 
+for the region with more dense CpGs, which is what we see.
+
+```{r}
+with(sum_by_region[sum_by_region$tsstrand=="+" &
+                    sum_by_region$group==1 ,], plot(beta,avg_beta))
+with(sum_by_region[sum_by_region$tsstrand=="+" &
+                    sum_by_region$group==3 ,], plot(beta,avg_beta))
+```
+
+
+```{r sI}
+sessionInfo()
+```
+

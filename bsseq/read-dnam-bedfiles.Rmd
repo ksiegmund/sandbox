@@ -19,8 +19,8 @@ library(data.table)
 
 Read in the beta values from sample IN.
 ```{r bed_file_dirs}
-#readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
-readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+#readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
 ```
 
 These files are not really BED files because of the header line. Read them in using data.table and create GRanges object.

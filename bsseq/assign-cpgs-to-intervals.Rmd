@@ -19,7 +19,7 @@ For each CpG, save interval name, interval start site, and strand. Later we'll s
 
 1. Load the saved TSSs and extend interval to 500 bases up- and downstream.
 ```{r tss-data}
-load("min_tss_gr")
+load("data/min_tss_gr.rda")
 min_tss_gr <- sort(min_tss_gr)
 # Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
 tss_resized <- resize(min_tss_gr, width = 1001, fix = "center")
@@ -92,7 +92,7 @@ table(table(values(beta.by.region)$cpg_id))
 
 ```{r}
 beta.by.region
-save(beta.by.region,file="beta.by.region")
+save(beta.by.region,file="data/beta.by.region.rda")
 ```
 
 Done!

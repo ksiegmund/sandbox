@@ -19,11 +19,11 @@ library(ggplot2)
 
 
 ```{r load-data}
-load("beta.by.region")
+load("data/beta.by.region.rda")
 
 Dt <- as.data.table(values(beta.by.region))
 Dt$pos <- start(beta.by.region) - 
-                values(beta.by.region)$tss500 + 1 - 500
+                values(beta.by.region)$tss500 + 1 - 501
 
 head(Dt)
 ```

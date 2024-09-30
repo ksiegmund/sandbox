@@ -5,11 +5,11 @@ date: "2024-09-27"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup-nest, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r libraries}
+```{r libraries-nest}
 library(GenomicFeatures)
 library(AnnotationDbi)
 library(rtracklayer)
@@ -47,7 +47,7 @@ betan2 <- betan2[values(betan2)$depth > 4]
 Wow. That's still a lot of CpGs!
 
 
-```{r sI}
+```{r sI-nest}
 sessionInfo()
 ```
 

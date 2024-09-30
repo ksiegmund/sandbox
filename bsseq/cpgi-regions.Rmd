@@ -1,0 +1,44 @@
+---
+title: "Get UCSC CpG island locations"
+author: "ks"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r cpgi}
+library(rtracklayer)
+library(data.table)
+library(GenomicRanges)
+
+# Download CpG islands for hg38 from UCSC
+cpg_islands_hg38 <- fread("http://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cpgIslandExt.txt.gz")
+
+# column names: https://genome.ucsc.edu/cgi-bin/hgTables?db=hg38&hgta_group=regulation&hgta_track=cpgIslandExt&hgta_table=cpgIslandExt&hgta_doSchema=describe+table+schema
+
+colnames(cpg_islands_hg38) <- c("bin","chrom","chromStart","chromEnd","name",
+                                "length","cpgNum","gcNum","perCpg","perGc","obsExp")
+
+cgi_gr <- GRanges(seqnames = cpg_islands_hg38$chrom,
+                   IRanges(start = cpg_islands_hg38$chromStart,
+                           end = cpg_islands_hg38$chromEnd))
+values(cgi_gr) <- DataFrame(name = cpg_islands_hg38$name,
+                            length = cpg_islands_hg38$length,
+                            cpgNum = cpg_islands_hg38$cpgNum,
+                            obsExp = cpg_islands_hg38$obsExp)
+cgi_gr
+```
+
+Restrict to chromosomes 1-22, X, Y, those on the primary assembly.
+```{r remove_alt_chr}
+desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
+# Assuming your GRanges object is called granges_obj
+cgi_gr <- cgi_gr[seqnames(cgi_gr) %in% desired_chromosomes]
+length(cgi_gr)
+```
+
+Dropped about 4000 regions.

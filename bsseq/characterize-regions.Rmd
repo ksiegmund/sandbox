@@ -56,7 +56,6 @@ filt_sum.tssregion <-
 table(filt_sum.tssregion$cat_region_avg_beta)
 ```
 
-
 ```{r save_region_summaries}
 save(filt_sum.tssregion,file="data/filt_sum.tssregion.rda")
 ```

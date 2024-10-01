@@ -1,0 +1,184 @@
+---
+title: "Summarize CpG counts by site and regions"
+author: "ks"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+```
+
+# Plot number of CpGs (coverage) by position relative to TSS
+
+
+```{r load-data}
+load("data/beta.by.region.rda")
+
+Dt <- as.data.table(values(beta.by.region))
+Dt$pos <- start(beta.by.region) - 
+                values(beta.by.region)$tss500 + 1 - 501
+
+Dt$group <- ifelse(Dt$pos<0, 1,
+                   ifelse(Dt$pos==0, 2, 3))
+head(Dt)
+```
+
+
+```{r}
+cor.test(Dt$depth,Dt$beta)
+```
+
+
+Visualize the association between read depth and beta value. 
+```{r}
+summary(Dt$depth)
+```
+
+```{r}
+decile_depth <- cut(Dt$depth, breaks = quantile(Dt$depth, probs = seq(0, 1, by = 0.2)), include.lowest = TRUE, labels = FALSE)
+df <- data.frame( beta = Dt$beta, decile_depth = as.factor(decile_depth))
+
+ggplot(df, aes(x = beta, fill = decile_depth)) +
+  geom_density(alpha = 0.7) +  # Transparent density plot
+  labs(title = "Density Plot of Beta, Split by Deciles of depth",
+       x = "beta",
+       y = "Density") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +  # Nice color palette
+  facet_wrap(~ decile_depth, ncol = 1, scales = "fixed")  # Stack the plots vertically with fixed y-axis
+```
+
+Alternatively maybe a violin plot would be good?
+
+
+
+Let's count the number of CpGs in each position, by strand. I created a variable group, which takes on values 1, 2, 3 depending on whether the CpG is left or right of the TSS. 
+
+```{r count_CpGs}
+numCpGs <- Dt[, .(n_CpG = .N), by = c("tsstrand","pos")]
+numCpGs <- numCpGs[order(tsstrand,pos)]
+numCpGs
+```
+
+Let's plot this as the fraction of TSS intervals by strand.
+```{r Dt-counts}
+nI <- Dt[, .(unique_tss_count = uniqueN(tssgene_id)), by = tsstrand]
+nI
+```
+
+```{r}
+Df <- merge(numCpGs,nI)
+Df$freq_CpG <- Df$n_CpG/Df$unique_tss_count
+Df
+```
+
+
+```{r}
+ggplot(Df) +
+        geom_point(aes(x=pos,y=freq_CpG,color=tsstrand), alpha=0.3) +
+        geom_smooth(aes(x=pos,y=freq_CpG,color=tsstrand)) +
+        facet_wrap(~tsstrand)
+```
+
+Although computed from the data (5+ reads), this suggests there are fewer CpGs per position upstream of the TSS, which is consistent with lower CpG density regions and consequently higher DNA methylation. CpG density can confound any direct comparison of average DNA methylation between regions with different CpG density.
+
+
+Let's compute 3 summary statistics for each interval: 
+1) number upstream CpGs 
+2) TSS has CpG (1/0)  
+3) number of downstream CpGs
+```{r count_CpGs_byregion}
+Dt <- Dt[order(tsstrand,tssgene_id,group)]
+numCpGs <- Dt[, .(n_CpG = .N, 
+                  avg_beta = mean(beta), 
+                  sd_depth = sd(depth)),
+                   by = c("tsstrand","tssgene_id","group")]
+numCpGs
+```
+
+average Beta is negatively associated with number of CpGs in 500 bp region
+```{r}
+cor.test(numCpGs$n_CpG,numCpGs$avg_beta)
+```
+
+```{r}
+#GGally::ggpairs(numCpGs[, tssgene_id:=NULL])
+cor.test(numCpGs$sd_depth,numCpGs$avg_beta)
+```
+
+```{r}
+cor.test(numCpGs$sd_depth,numCpGs$n_CpG)
+```
+
+All these associations support regions with fewer CpGs, have higher average DNA methylation and more variation in read depth. These can confound the association of average DNA methylation by CpG position relative to TSS.
+
+```{r}
+table(numCpGs$group,numCpGs$tsstrand)
+```
+
+The fact that the sample size differs upstream and downstream shows that not all strands contribute data to both regions.
+Any comparisons of upstream to downstream DNA methylation, should at least match on TSS region. 
+
+```{r}
+dt_filtered <- numCpGs[, .SD[.N == 3], by = tssgene_id]
+
+# View the filtered data.table
+dt_filtered
+```
+
+```{r}
+table(dt_filtered$group,dt_filtered$tsstrand)
+```
+
+
+```{r}
+ggplot(dt_filtered, aes(x=as.factor(group),y=n_CpG))  +
+        geom_boxplot() +
+        facet_wrap(~tsstrand) +
+        ggtitle("Regions with CpG at TSS: (n=334 for + strand, n=1498 for - strand.  
+                Group = upstream, TSS, downstream")
+```
+
+Try making the figure for regions without TSS covered, but having data in both upstream and downstream regions.
+```{r}
+
+dt_filtered <-  numCpGs[ group !=2 ] 
+dt_filtered <-  dt_filtered[, .SD[.N == 2], by = tssgene_id]
+
+# View the filtered data.table
+dt_filtered
+```
+
+```{r}
+table(dt_filtered$group,dt_filtered$tsstrand)
+```
+
+```{r}
+ggplot(dt_filtered, aes(x=as.factor(group),y=n_CpG))  +
+        geom_boxplot() +
+        facet_wrap(~tsstrand) +
+        ggtitle("Regions with CpGs both up and downstream: (n=15198 for + strand, n=14545 for - strand.  
+                Group = upstream, TSS, downstream")
+```
+
+```{r}
+t.test(n_CpG ~ as.factor(group), subset = tsstrand =="+", data=dt_filtered)
+```
+
+```{r}
+t.test(n_CpG ~ as.factor(group), subset = tsstrand =="-", data=dt_filtered)
+```
+
+The variation in depth makes me wonder about computing unweighted vs weighted average of betas in regions with fewer CpGs.  
+
+```{r sI}
+sessionInfo()
+```
+

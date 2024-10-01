@@ -10,16 +10,34 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r libraries, message=FALSE}
-library(GenomicRanges)
+library(GenomicFeatures)
 library(data.table)
 library(ggplot2)
 ```
 
 # Summarize TSS intervals
 
+Add CpG island information.
+
 ```{r load-data}
 load("data/beta.by.region.rda")
 
+rmarkdown::render("cpgi-regions.Rmd")
+```
+
+annotate CpGs with whether they are in a CpG island.
+```{r}
+f1 <- findOverlaps(beta.by.region,cgi_gr)
+f1
+values(beta.by.region)$inCGI <- 0
+values(beta.by.region)$inCGI[queryHits(f1)] <- 1
+table(values(beta.by.region)$inCGI)
+```
+
+Fraction of CpGs in CpG islands = `r round(mean(values(beta.by.region)$inCGI),2)`
+
+
+```{r compute-position-relative-to-TSS}
 Dt <- as.data.table(values(beta.by.region))
 Dt$pos <- start(beta.by.region) - 
                 values(beta.by.region)$tss500 + 1 - 501
@@ -29,12 +47,13 @@ Dt$group <- ifelse(Dt$pos<0, 1,
 head(Dt)
 ```
 
-Let's count the number of CpGs by region, avg_beta, sd_beta, and study their relationship. 
+Let's count the number of CpGs by region, the proportion of CpGs in CGIs, avg_beta, sd_beta, and study their relationship. 
 
 ```{r count_CpGs, cache=TRUE}
-sum.tssregion <- Dt[, .(   region_n_CpG = .N,
-                        region_avg_beta = mean(beta),
-                         region_sd_beta = sd(beta)), 
+sum.tssregion <- Dt[, .(     region_n_CpG = .N,
+                        region_prop_inCGI = mean(inCGI),
+                          region_avg_beta = mean(beta),
+                           region_sd_beta = sd(beta)), 
                     by = c("tssgene_id")]
 sum.tssregion
 ```
@@ -44,13 +63,19 @@ How many regions have singleton CpGs? `r sum(sum.tssregion$region_n_CpG==1)`
 How many regions (`#` CpG > 1) have average beta = 0? `r nrow(sum.tssregion[region_n_CpG>1 & region_avg_beta == 0])`  
 How many regions (`#` CpG > 1) have average beta = 1? `r nrow(sum.tssregion[region_n_CpG>1 & region_avg_beta == 1])`   
 
+How many regions are completely outside CGIs? `r round(mean(sum.tssregion$region_prop_inCGI==0),2)*100` \%     
+How many regions have >50\% CpGs in CGIs?
+`r round(mean(sum.tssregion$region_prop_inCGI>0.5),2)*100` \%
+
 Now let's remove regions with singleton CpG and categorize region_avg_beta into 3 levels:  < 0.05,  0.05-0.95, >0.95.
 
 ```{r}
 filt_sum.tssregion <- sum.tssregion[ region_n_CpG > 1 ]
 filt_sum.tssregion <- 
-        filt_sum.tssregion[,
-              .(cat_region_avg_beta = 
+                filt_sum.tssregion[,.(
+                  tssgene_id = tssgene_id,
+                  region_inCGI = ifelse(region_prop_inCGI==0,0,1),
+                  cat_region_avg_beta = 
                       ifelse(region_avg_beta < 0.05,1,
                       ifelse(region_avg_beta > 0.95,3,2)))]
 table(filt_sum.tssregion$cat_region_avg_beta)

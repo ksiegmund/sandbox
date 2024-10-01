@@ -28,24 +28,39 @@ Dt$pos <- start(beta.by.region) -
 head(Dt)
 ```
 
+Add categorical region average beta variable to stratify plots of average DNA methylation by this categorial variable (avg_beta < 0.05, between 0.05-0.95,  > 0.95). Also stratify by proportion of CpGs in CGI. 
+```{r merge-w-region-variables}
+load("data/filt_sum.tssregion.rda")
+
+mDt <- merge(Dt,
+             filt_sum.tssregion,
+             by = "tssgene_id",
+             all.y = TRUE)
+mDt
+```
+
+
 Let's count the number of CpGs in each position, by strand.
 ```{r}
-nobs<- table(Dt$pos,
-             Dt$tsstrand)
+nobs<- table(mDt$pos,
+             mDt$tsstrand,mDt$cat_region_avg_beta,mDt$region_inCGI)
 head(nobs)
 ```
 
-Distribution of counts in + strand: `r summary(nobs[,"+"])`  
-Distribution of counts in - strand: `r summary(nobs[,"-"])`
 
-How many intervals are on the plus strand and how many are on the minus strand?
+How many intervals are on the plus strand and how many are on the minus strand, grouped by average beta value of interval?
 ```{r Dt-counts}
-Dt[, .(unique_tss_count = uniqueN(tssgene_id)), by = tsstrand]
+mDt <- mDt[order(,region_inCGI,cat_region_avg_beta,tsstrand)]
+mDt[, .(unique_tss_count = uniqueN(tssgene_id)), 
+              by = c("region_inCGI",
+                     "cat_region_avg_beta","tsstrand")]
 ```
 
 ```{r avgbeta}
-avgbeta <- Dt[, .(avg_beta = mean(beta)), by = c("tsstrand","pos")]
-avgbeta <- avgbeta[order(tsstrand,pos)]
+avgbeta <- mDt[, .(avg_beta = mean(beta)), 
+                  by = c("region_inCGI",
+                         "cat_region_avg_beta","tsstrand","pos")]
+avgbeta <- avgbeta[order(region_inCGI,cat_region_avg_beta,tsstrand,pos)]
 avgbeta
 ```
 
@@ -53,10 +68,15 @@ avgbeta
 ggplot(avgbeta) +
         geom_point(aes(x=pos,y=avg_beta,color=tsstrand), alpha=0.3) +
         geom_smooth(aes(x=pos,y=avg_beta,color=tsstrand)) +
-        facet_wrap(~tsstrand)
+        facet_grid(as.factor(cat_region_avg_beta) + 
+                     as.factor(region_inCGI) ~tsstrand,
+                   scales = "free_y")
 ```
 
+Very interesting.  Now I really want to stratify by CpG island.
+Eventually I should pool the two strands by reversing the positions on the minus strand.  Go back to row 25 and correct the positions on the minus strand.
 
+It's time to pool strands, and label my categories.
 
 ```{r sI}
 sessionInfo()

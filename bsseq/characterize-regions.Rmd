@@ -15,8 +15,7 @@ library(data.table)
 library(ggplot2)
 ```
 
-# Plot number of CpGs (coverage) by position relative to TSS
-
+# Summarize TSS intervals
 
 ```{r load-data}
 load("data/beta.by.region.rda")
@@ -25,143 +24,39 @@ Dt <- as.data.table(values(beta.by.region))
 Dt$pos <- start(beta.by.region) - 
                 values(beta.by.region)$tss500 + 1 - 501
 
-# add se(beta); squeeze beta value to avoid boundaries 0,1
-shrink_beta <- (Dt$beta - 0.5)*0.98 + 0.5
-Dt$seb   <- sqrt( shrink_beta * (1 - shrink_beta) / Dt$depth)
-Dt$wgt   <- 1/Dt$seb
 Dt$group <- ifelse(Dt$pos<0, 1,
                    ifelse(Dt$pos==0, 2, 3))
 head(Dt)
 ```
 
-Let's count the number of CpGs in each position, by strand. I created a variable group, which takes on values 1, 2, 3 depending on whether the CpG is left or right of the TSS. 
+Let's count the number of CpGs by region, avg_beta, sd_beta, and study their relationship. 
 
-```{r count_CpGs}
-numCpGs <- Dt[, .(n_CpG = .N), by = c("tsstrand","pos")]
-numCpGs <- numCpGs[order(tsstrand,pos)]
-numCpGs
+```{r count_CpGs, cache=TRUE}
+sum.tssregion <- Dt[, .(   region_n_CpG = .N,
+                        region_avg_beta = mean(beta),
+                         region_sd_beta = sd(beta)), 
+                    by = c("tssgene_id")]
+sum.tssregion
 ```
 
-Let's plot this as the fraction of TSS intervals by strand.
-```{r Dt-counts}
-nI <- Dt[, .(unique_tss_count = uniqueN(tssgene_id)), by = tsstrand]
-nI
-```
+How many TSS regions? `r nrow(sum.tssregion)`  
+How many regions have singleton CpGs? `r sum(sum.tssregion$region_n_CpG==1)`  
+How many regions (`#` CpG > 1) have average beta = 0? `r nrow(sum.tssregion[region_n_CpG>1 & region_avg_beta == 0])`  
+How many regions (`#` CpG > 1) have average beta = 1? `r nrow(sum.tssregion[region_n_CpG>1 & region_avg_beta == 1])`   
+
+Now let's remove regions with singleton CpG and categorize region_avg_beta into 3 levels:  < 0.05,  0.05-0.95, >0.95.
 
 ```{r}
-Df <- merge(numCpGs,nI)
-Df$freq_CpG <- Df$n_CpG/Df$unique_tss_count
-Df
+filt_sum.tssregion <- sum.tssregion[ region_n_CpG > 1 ]
+filt_sum.tssregion <- 
+        filt_sum.tssregion[,
+              .(cat_region_avg_beta = 
+                      ifelse(region_avg_beta < 0.05,1,
+                      ifelse(region_avg_beta > 0.95,3,2)))]
+table(filt_sum.tssregion$cat_region_avg_beta)
 ```
 
-
-```{r}
-ggplot(Df) +
-        geom_point(aes(x=pos,y=freq_CpG,color=tsstrand), alpha=0.3) +
-        geom_smooth(aes(x=pos,y=freq_CpG,color=tsstrand)) +
-        facet_wrap(~tsstrand)
-```
-
-Although computed from the data (5+ reads), this suggests there are fewer CpGs per position upstream of the TSS, which is consistent with lower CpG density regions and consequently higher DNA methylation. CpG density can confound any direct comparison of average DNA methylation between regions with different CpG density.
-
-
-Let's compute 3 summary statistics for each interval: 
-1) number upstream CpGs 
-2) TSS has CpG (1/0)  
-3) number of downstream CpGs
-```{r count_CpGs_byregion}
-Dt <- Dt[order(tsstrand,tssgene_id,group)]
-numCpGs <- Dt[, .(n_CpG = .N, 
-                  avg_beta = mean(beta), 
-                  sd_depth = sd(depth),
-                  Mtot = sum(m),
-                  MUtot = sum(depth),
-                  TotWt = sum(wgt)),
-                   by = c("tsstrand","tssgene_id","group")]
-numCpGs
-```
-
-average Beta is negatively associated with number of CpGs in 500 bp region
-```{r}
-cor.test(numCpGs$n_CpG,numCpGs$avg_beta)
-```
-
-```{r}
-#GGally::ggpairs(numCpGs[, tssgene_id:=NULL])
-cor.test(numCpGs$sd_depth,numCpGs$avg_beta)
-```
-
-```{r}
-cor.test(numCpGs$sd_depth,numCpGs$n_CpG)
-```
-
-All these associations support regions with fewer CpGs, have higher average DNA methylation and more variation in read depth. These can confound the association of average DNA methylation by CpG position relative to TSS.
-
-```{r}
-table(numCpGs$group,numCpGs$tsstrand)
-```
-
-The fact that the sample size differs upstream and downstream shows that not all strands contribute data to both regions.
-Any comparisons of upstream to downstream DNA methylation, should at least match on TSS region. 
-
-```{r}
-dt_filtered <- numCpGs[, .SD[.N == 3], by = tssgene_id]
-
-# View the filtered data.table
-dt_filtered
-```
-
-```{r}
-table(dt_filtered$group,dt_filtered$tsstrand)
-```
-
-
-```{r}
-ggplot(dt_filtered, aes(x=as.factor(group),y=n_CpG))  +
-        geom_boxplot() +
-        facet_wrap(~tsstrand) +
-        ggtitle("Regions with CpG at TSS: (n=370 for + strand, n=283 for - strand.  
-                Group = upstream, TSS, downstream")
-```
-
-Try making the figure for regions without TSS covered, but having data in both upstream and downstream regions.
-```{r}
-
-dt_filtered <-  numCpGs[ group !=2 ] 
-dt_filtered <-  dt_filtered[, .SD[.N == 2], by = tssgene_id]
-
-# View the filtered data.table
-dt_filtered
-```
-
-```{r}
-table(dt_filtered$group,dt_filtered$tsstrand)
-```
-
-```{r}
-ggplot(dt_filtered, aes(x=as.factor(group),y=n_CpG))  +
-        geom_boxplot() +
-        facet_wrap(~tsstrand) +
-        ggtitle("Regions with CpGs both up and downstream: (n=15231 for + strand, n=14577 for - strand.  
-                Group = upstream, TSS, downstream")
-```
-
-```{r}
-t.test(n_CpG ~ as.factor(group), subset = tsstrand =="+", data=dt_filtered)
-```
-
-```{r}
-t.test(n_CpG ~ as.factor(group), subset = tsstrand =="-", data=dt_filtered)
-```
-
-
-The variation in depth makes me wonder about computing unweighted vs weighted average of betas in regions with fewer CpGs.
-
-
-This average beta does not take different coverage into account. Add weights to previous data set to get the weighted average. The estimates will be different if the coverage varies across the region.  If it's similar for all sites, the weights are also similar and the crude average is close to the weighted average.
-
-
-```{r sI}
-sessionInfo()
+```{r save_region_summaries}
+save(filt_sum.tssregion,file="data/filt_sum.tssregion.rda")
 ```
 

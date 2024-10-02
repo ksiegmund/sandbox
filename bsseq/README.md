@@ -3,6 +3,7 @@
 ## annotation data
 make-gene-TSS.Rmd         
 cpgi_regions.Rmd
+get_scdev.Rmd
 
 ## assign CpGs to intervals
 assign-cpgs-to-intervals.Rmd - this calls read-dam-bedfiles.Rmd to read in dnam data

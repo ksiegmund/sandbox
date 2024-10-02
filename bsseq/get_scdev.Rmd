@@ -1,0 +1,56 @@
+---
+title: "get_scdev"
+author: "ks"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read in the deviances Kelly computed for single-cell colon cancer data.
+
+```{r read-gene-tumor, warning=FALSE}
+#fn <-  c("~kims/Google Drive/My Drive/MyFolder/People/Darryl Shibata/plasticity/20230123/forKIMnormaltumordeviancegraph1-23.xlsx")
+fn <-  c("~kims/Google Drive/My Drive/shibata/Shibata EPIC Data/datajy/forKIMnormaltumordeviancegraph1-23.xlsx")
+genet <- readxl::read_xlsx(fn,sheet = "gene_tumor",col_names = FALSE, skip=3)
+dim(genet)
+
+# grab row 2 data as column names for columns: 1-4, 27
+cname <- readxl::read_xlsx(fn,sheet = "gene_tumor",col_names = TRUE,n_max=3)
+cnames <- names(cname)
+cnames[c(1:4,27)] <- as.character(cname[2,c(1:4,27)])
+#cnames
+names(genet) <- cnames
+  
+dat <- cbind.data.frame(genet,
+                        gg = ifelse(!is.na(genet$`DepMap-essential`),
+                                   "essential","inducible")
+                  )
+dat <- dat[!is.na(dat$tumorepi+1),]
+table(dat$gg)
+```
+
+Add some jitter to the values so we can plot the values near 0 and they are not all overlapping.
+
+```{r jitter}
+set.seed(1234)
+dat$jtumorepi <-jitter(dat$`tumorepi+1`,amount=0.5)
+dat[1,]
+```
+
+And save.
+```{r save-devs}
+crcdev <- cbind.data.frame( name = dat$gene,
+                            dev = dat$`tumorepi+1`,
+                            jdev = dat$jtumorepi,
+                            depmap_esstl = dat$`DepMap-essential`)
+#save(crcdev,file="data/crcdev.rda")
+```
+
+```{r si}
+sessionInfo()
+```
+
+

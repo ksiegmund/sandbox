@@ -76,7 +76,7 @@ ggplot(avgbeta) +
 Very interesting.  Now I really want to stratify by CpG island.
 Eventually I should pool the two strands by reversing the positions on the minus strand.  Go back to row 25 and correct the positions on the minus strand.
 
-It's time to pool strands, and label my categories.
+It's time to pool strands, and label my CpG island & region avg beta categories.
 
 ```{r sI}
 sessionInfo()

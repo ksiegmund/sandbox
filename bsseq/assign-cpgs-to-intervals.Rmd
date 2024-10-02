@@ -21,6 +21,8 @@ For each CpG, save interval name, interval start site, and strand. Later we'll s
 ```{r tss-data}
 load("data/min_tss_gr.rda")
 min_tss_gr <- sort(min_tss_gr)
+
+
 # Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
 tss_resized <- resize(min_tss_gr, width = 1001, fix = "center")
 ```

@@ -77,6 +77,10 @@ min_tss_gr <- unlist(GRangesList(min_tss_by_gene))
 
 # View the result
 min_tss_gr
+
+min_tss_gr <- keepSeqlevels(min_tss_gr, seqlevelsInUse(min_tss_gr), pruning.mode = "coarse")
+length(min_tss_gr)
+table(seqnames(min_tss_gr))
 ```
 
 
@@ -86,14 +90,6 @@ save(min_tss_gr,file="data/min_tss_gr.rda")
 
 Is it correct to assume each gene is only on 1 strand? (I made that assumption)
 If I'm wrong, then I've saved the positive strand only.
-
-
-Now let's grab 500 bases upstream and downstream:
-```{r}
-# Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
-tss_resized <- resize(min_tss_gr, width = 1001, fix = "center")
-```
-
 
 ```{r sI}
 sessionInfo()

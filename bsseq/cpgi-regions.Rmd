@@ -38,7 +38,10 @@ Restrict to chromosomes 1-22, X, Y, those on the primary assembly.
 desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
 # Assuming your GRanges object is called granges_obj
 cgi_gr <- cgi_gr[seqnames(cgi_gr) %in% desired_chromosomes]
+# Reset seqinfo to only include chromosomes present in the GRanges object
+cgi_gr <- keepSeqlevels(cgi_gr, seqlevelsInUse(cgi_gr), pruning.mode = "coarse")
 length(cgi_gr)
+table(seqnames(cgi_gr))
 ```
 
 Dropped about 4000 regions.

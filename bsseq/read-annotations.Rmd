@@ -1,0 +1,118 @@
+---
+title: "Read gene annotations"
+author: "ks"
+date: "2024-10-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE, warnings=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+```
+
+# TCGA COAD sc-ATAC seq peak set
+
+```{r dirs}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/annotations")
+```
+
+Per Darryl:
+New Science paper (https://pubmed.ncbi.nlm.nih.gov/39236169/) has sc-ATAC seq data on chromatin accessibility. 
+
+The idea is that transcription site chromatin binding should have two patterns   
+1. if transcription site is active (binding of H3K27ac) in all single cells, the DNA region should have conserved methylation
+2. if the transcription site is active in only some of the single cells, the DNA region should have conserved methylation (ie variable expression and plasticity)  
+3. if the transcription site is silent, then DNA region conservation should be lost relative to the above. 
+
+Let's grab data in: Cancer_Types_Peaks.tar.gz
+```{r read-files}
+library(data.table)
+
+# calls from Individual replicates
+fin <- fread(file.path(readdir,"Cancer_Type_Peaks/COAD_peakset.csv"))
+fin
+```
+
+Make this a GRange object.
+```{r peakset_gr}
+peakset <- GRanges(seqnames = fin$seqnames,
+                   IRanges(start = fin$start,end = fin$end))
+values(peakset) <- DataFrame(fin[,-c("V1","seqnames","start","end","width","strand")])
+peakset
+```
+
+What do we have?  
+```{r}
+length(unique(peakset$GroupReplicate))
+table(peakset$GroupReplicate)
+```
+These are peaks from 2 replicates on 12 samples. Question: are these from the cancer cells only? I'm hoping yes.
+
+Ask Yichen to compare .Rep1 and .Rep2. from matching samples
+and summarize number of overlapping peaks and number of peaks unique to each replicate. Do this for all 12 samples. Then create a new dataset for the 12 samples, saving the union of the overlapping intervals.
+
+On this set, let's see how many intervals overlap across the 12 cancers. Rank the cancers based on numbers of peaks. Compare the 2 samples with the most peaks first to see if a large portion are common to both cancers.  Can we cluster these 12 samples based on peak regions? what might that look like?
+
+# COAD: Motif regions
+
+Now let's see what is provided in Cancer_cleaned_Cancer_peakset.tar.gz
+```{r read-cleaned-peakset}
+
+fin <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/COAD_cleaned_motifs.csv/COAD_cleaned_motifs.csv"))
+fin
+```
+
+
+```{r}
+coad_motif_gr <- GRanges(seqnames = fin$seqnames,
+                   IRanges(start = fin$start,end = fin$end))
+values(coad_motif_gr) <- DataFrame(group_name = fin$group_name)
+coad_motif_gr
+```
+
+How many unique group_names are there?
+```{r}
+length(unique(values(coad_motif_gr)$group_name))
+```
+These must be transcription factor names.
+
+Summarize the width of the intervals.
+```{r}
+summary(width(coad_motif_gr)) 
+```
+These must be the different motif lengths.  It would be good to look up a few to see what the motif is for these transcription factors.  And then go to these locations on the genome browser and see if it matches the motif.
+
+How many intervals for CTCF?
+```{r}
+coad_motif_gr[values(coad_motif_gr)$group_name=="CTCF"]
+```
+
+Are they on all chromosomes?
+```{r}
+table(seqnames(coad_motif_gr[values(coad_motif_gr)$group_name=="CTCF"]))
+```
+
+Yes.
+
+How many peaks are there for each TF?
+```{r binding-sites}
+summary(c(table(values(coad_motif_gr)$group_name)))
+```
+
+What has the most peaks?
+```{r find-max}
+tb <- table(values(coad_motif_gr)$group_name)
+tb[which(tb==max(tb))]
+```
+
+https://academic.oup.com/nar/article/45/11/6572/3852041
+https://www.mdpi.com/1422-0067/23/17/9956
+
+
+
+

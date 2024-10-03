@@ -54,8 +54,6 @@ How are these distributed across different TSS intervals?
 ```{r describe-fO}
 num.in.intervals <- table(table(queryHits(fO)))
 num.in.intervals
-# Split the DNAm data by TSSs
-#betan2_by_tss <- split(tss_gr, tss_gr$gene_id)
 ```
 
 `r num.in.intervals[1]` are in 1 TSS interval  
@@ -78,11 +76,12 @@ values(betan2)$cpg_id <- c(1:length(betan2))
 beta.by.region <- betan2[queryHits(fO)]
 values(beta.by.region)$tssgene_id <- 
       values(tss_resized[subjectHits(fO)])$gene_id
-# go back to tss position. Row order for min_tss_gr is identical to row order for tss_resized row 
-values(beta.by.region)$tss <- 
-      start(min_tss_gr[subjectHits(fO)])
-values(beta.by.region)$tsstrand <-
-      strand(tss_resized[subjectHits(fO)])
+
+# go back to tss position. Row order for min_tss_gr is identical to row order for tss_resized; tss is one base, start gets it 
+    values(beta.by.region)$tss <- 
+            start(min_tss_gr[subjectHits(fO)])
+    values(beta.by.region)$tsstrand <-
+            strand(tss_resized[subjectHits(fO)])
 ```
 
 Let's check the object.

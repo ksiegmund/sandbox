@@ -88,8 +88,8 @@ Is it correct to assume each gene is only on 1 strand? (I made that assumption)
 If I'm wrong, then I've saved the positive strand only.
 
 Let's note if the TSS is in a CpG island.
-```{r}
-#rmarkdown::render("cpgi-regions.Rmd")
+```{r overlap-cgi}
+rmarkdown::render("cpgi-regions.Rmd")
 
 f1 <- findOverlaps(min_tss_gr,cgi_gr)
 f1

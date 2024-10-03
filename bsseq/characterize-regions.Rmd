@@ -78,6 +78,11 @@ filt_sum.tssregion <-
                   cat_region_avg_beta = 
                       ifelse(region_avg_beta < 0.05,1,
                       ifelse(region_avg_beta > 0.95,3,2)))]
+filt_sum.tssregion$cat_region_avg_beta <-
+   factor(filt_sum.tssregion$cat_region_avg_beta,
+                  levels=c("1","2","3")  ,
+                labels = c("avg_beta < 0.05",
+                           "0.05-0.95","avg_beta > 0.95"))
 table(filt_sum.tssregion$cat_region_avg_beta)
 ```
 

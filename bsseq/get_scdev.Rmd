@@ -52,6 +52,7 @@ gene_symbol_map <- AnnotationDbi::select(org.Hs.eg.db,
 scdev$gene_ids <- gene_symbol_map$ENTREZID[match(as.character(scdev$genesymbol),
                gene_symbol_map$SYMBOL)]
 # is this last step unnecessary?
+save(scdev,file = "data/scdev.rda")
 ```
 
 I lose 4400 genes trying to map the symbol to Entrez gene id.

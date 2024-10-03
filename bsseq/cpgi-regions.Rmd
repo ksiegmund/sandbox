@@ -34,7 +34,7 @@ cgi_gr
 ```
 
 Restrict to chromosomes 1-22, X, Y, those on the primary assembly.
-```{r remove_alt_chr}
+```{r remove_nonprimary_chrs}
 desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
 # Assuming your GRanges object is called granges_obj
 cgi_gr <- cgi_gr[seqnames(cgi_gr) %in% desired_chromosomes]

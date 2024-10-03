@@ -1,0 +1,83 @@
+---
+title: "Summarize DNAm and Plot"
+author: "ks"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+```
+
+# Compute Average DNAm by site across intervals
+
+
+```{r load-data}
+load("data/beta.by.region.rda")
+
+Dt <- data.table(cpgpos = start(beta.by.region),
+                    as.data.frame(values(beta.by.region)))
+Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="+",
+                 start(beta.by.region) - 
+                values(beta.by.region)$tss,
+                values(beta.by.region)$tss -
+                  start(beta.by.region))
+
+head(Dt)
+```
+
+Add categorical region average beta variable to stratify plots of average DNA methylation by this categorial variable (avg_beta < 0.05, between 0.05-0.95,  > 0.95). Also stratify by proportion of CpGs in CGI. 
+```{r merge-w-region-variables}
+load("data/filt_sum.tssregion.rda")
+
+mDt <- merge(Dt,
+             filt_sum.tssregion,
+             by = "tssgene_id",
+             all.y = TRUE)
+mDt
+```
+
+
+Let's count the number of CpGs in each position, by strand.
+```{r}
+nobs<- table(mDt$pos,
+             mDt$tsstrand,mDt$cat_region_avg_beta,mDt$region_inCGI)
+head(nobs)
+```
+
+
+How many intervals are on the plus strand and how many are on the minus strand, grouped by average beta value of interval?
+```{r Dt-counts}
+mDt <- mDt[order(,region_inCGI,cat_region_avg_beta,tsstrand)]
+mDt[, .(unique_tss_count = uniqueN(tssgene_id)), 
+              by = c("region_inCGI",
+                     "cat_region_avg_beta","tsstrand")]
+```
+
+```{r avgbeta}
+avgbeta <- mDt[, .(avg_beta = mean(beta)), 
+                  by = c("region_inCGI",
+                         "cat_region_avg_beta","tsstrand","pos")]
+avgbeta <- avgbeta[order(region_inCGI,cat_region_avg_beta,tsstrand,pos)]
+avgbeta
+```
+
+```{r}
+ggplot(avgbeta) +
+        geom_point(aes(x=pos,y=avg_beta,color=factor(region_inCGI), alpha=0.3)) +
+        geom_smooth(aes(x=pos,y=avg_beta,color=factor(region_inCGI))) +
+        facet_grid(as.factor(cat_region_avg_beta) ~ 
+                     as.factor(region_inCGI),
+                   scales = "free_y")
+```
+
+```{r sI}
+sessionInfo()
+```
+

@@ -98,7 +98,7 @@ values(min_tss_gr)$inCGI[queryHits(f1)] <- 1
 table(values(min_tss_gr)$inCGI)
 ```
 
-`r sum(values(min_tss_gr)$inCGI)` (`r round(mean(values(min_tss_gr)$inCGI),2)*100`) of the TSSs are in UCSC defined CpG islands.
+## `r as.character(sum(values(min_tss_gr)$inCGI))` (`r round(mean(values(min_tss_gr)$inCGI),2)*100`\%) of the TSSs are in UCSC defined CpG islands.
 
 
 ```{r save-data}

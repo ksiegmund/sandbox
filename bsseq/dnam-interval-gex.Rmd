@@ -1,5 +1,5 @@
 ---
-title: "Summarize DNAm and Plot"
+title: "DNA methylation profiles by gene expression variation"
 author: "ks"
 date: "2024-09-27"
 output: html_document
@@ -23,12 +23,11 @@ load("data/beta.by.region.rda")
 
 Dt <- data.table(cpgpos = start(beta.by.region),
                     as.data.frame(values(beta.by.region)))
-Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="+",
+Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="-",
+                  values(beta.by.region)$tss -
+                  start(beta.by.region),
                  start(beta.by.region) - 
-                values(beta.by.region)$tss,
-                values(beta.by.region)$tss -
-                  start(beta.by.region))
-
+                 values(beta.by.region)$tss)
 head(Dt)
 ```
 

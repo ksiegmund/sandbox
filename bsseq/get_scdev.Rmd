@@ -37,9 +37,21 @@ scdev$jcolon_ldev <-jitter(scdev$colon_ldev,amount=0.5)
 head(scdev)
 ```
 
-Add Entrez Gene ID.
-```{r}
 
+How do I map gene symbols to entrez gene ids
+```{r}
+library(AnnotationDbi)
+library(org.Hs.eg.db) 
+
+# Map gene symbols to entrez gene IDs
+gene_symbol_map <- AnnotationDbi::select(org.Hs.eg.db, 
+                          keys = as.character(scdev$genesymbol), 
+                          column = "ENTREZID", keytype = "SYMBOL", 
+                     multiVals = "first")
+# Add gene IDs to the sc deviance data.
+scdev$gene_ids <- gene_symbol_map$ENTREZID[match(as.character(scdev$genesymbol),
+               gene_symbol_map$SYMBOL)]
+# is this last step unnecessary?
 ```
 
-
+I lose 4400 genes trying to map the symbol to Entrez gene id.

@@ -79,10 +79,10 @@ min_tss_gr <- unlist(GRangesList(min_tss_by_gene))
 min_tss_gr
 
 min_tss_gr <- keepSeqlevels(min_tss_gr, seqlevelsInUse(min_tss_gr), pruning.mode = "coarse")
-length(min_tss_gr)
-table(seqnames(min_tss_gr))
+#table(seqnames(min_tss_gr))
 ```
 
+## We have `r length(min_tss_gr)` gene TSS sites
 
 Is it correct to assume each gene is only on 1 strand? (I made that assumption)
 If I'm wrong, then I've saved the positive strand only.
@@ -97,6 +97,8 @@ values(min_tss_gr)$inCGI <- 0
 values(min_tss_gr)$inCGI[queryHits(f1)] <- 1
 table(values(min_tss_gr)$inCGI)
 ```
+
+`r sum(values(min_tss_gr)$inCGI)` (`r round(mean(values(min_tss_gr)$inCGI),2)*100`) of the TSSs are in UCSC defined CpG islands.
 
 
 ```{r save-data}

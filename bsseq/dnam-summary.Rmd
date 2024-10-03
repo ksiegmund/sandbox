@@ -21,9 +21,13 @@ library(ggplot2)
 ```{r load-data}
 load("data/beta.by.region.rda")
 
-Dt <- as.data.table(values(beta.by.region))
-Dt$pos <- start(beta.by.region) - 
-                values(beta.by.region)$tss500 + 1 - 501
+Dt <- data.table(cpgpos = start(beta.by.region),
+                    as.data.frame(values(beta.by.region)))
+Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="+",
+                 start(beta.by.region) - 
+                values(beta.by.region)$tss,
+                values(beta.by.region)$tss -
+                  start(beta.by.region))
 
 head(Dt)
 ```
@@ -66,17 +70,12 @@ avgbeta
 
 ```{r}
 ggplot(avgbeta) +
-        geom_point(aes(x=pos,y=avg_beta,color=tsstrand), alpha=0.3) +
-        geom_smooth(aes(x=pos,y=avg_beta,color=tsstrand)) +
-        facet_grid(as.factor(cat_region_avg_beta) + 
-                     as.factor(region_inCGI) ~tsstrand,
+        geom_point(aes(x=pos,y=avg_beta,color=factor(region_inCGI), alpha=0.3)) +
+        geom_smooth(aes(x=pos,y=avg_beta,color=factor(region_inCGI))) +
+        facet_grid(as.factor(cat_region_avg_beta) ~ 
+                     as.factor(region_inCGI),
                    scales = "free_y")
 ```
-
-Very interesting.  Now I really want to stratify by CpG island.
-Eventually I should pool the two strands by reversing the positions on the minus strand.  Go back to row 25 and correct the positions on the minus strand.
-
-It's time to pool strands, and label my CpG island & region avg beta categories.
 
 ```{r sI}
 sessionInfo()

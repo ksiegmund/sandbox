@@ -78,8 +78,9 @@ values(betan2)$cpg_id <- c(1:length(betan2))
 beta.by.region <- betan2[queryHits(fO)]
 values(beta.by.region)$tssgene_id <- 
       values(tss_resized[subjectHits(fO)])$gene_id
-values(beta.by.region)$tss500 <- 
-      start(tss_resized[subjectHits(fO)])  
+# go back to tss position. Row order for min_tss_gr is identical to row order for tss_resized row 
+values(beta.by.region)$tss <- 
+      start(min_tss_gr[subjectHits(fO)])
 values(beta.by.region)$tsstrand <-
       strand(tss_resized[subjectHits(fO)])
 ```
@@ -87,6 +88,8 @@ values(beta.by.region)$tsstrand <-
 Let's check the object.
 I should have the same numbers of CpGs assigned to
 multiple intervals as computed from the above query.
+
+Need to make tss500 strand aware.  better yet. Maybe I should use tsslocation. 
 
 ```{r}
 table(table(values(beta.by.region)$cpg_id))

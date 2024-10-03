@@ -9,48 +9,37 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Read in the deviances Kelly computed for single-cell colon cancer data.
+Read in the deviances Kelly computed for single-cell colon data.
 
-```{r read-gene-tumor, warning=FALSE}
+```{r read-colon, warning=FALSE}
 #fn <-  c("~kims/Google Drive/My Drive/MyFolder/People/Darryl Shibata/plasticity/20230123/forKIMnormaltumordeviancegraph1-23.xlsx")
-fn <-  c("~kims/Google Drive/My Drive/shibata/Shibata EPIC Data/datajy/forKIMnormaltumordeviancegraph1-23.xlsx")
-genet <- readxl::read_xlsx(fn,sheet = "gene_tumor",col_names = FALSE, skip=3)
-dim(genet)
+fn <-  c("~kims/Google Drive/My Drive/Data/hpc-archive/annotations/forKIMnormaltumordeviancegraph1-23.xlsx")
 
 # grab row 2 data as column names for columns: 1-4, 27
-cname <- readxl::read_xlsx(fn,sheet = "gene_tumor",col_names = TRUE,n_max=3)
-cnames <- names(cname)
-cnames[c(1:4,27)] <- as.character(cname[2,c(1:4,27)])
-#cnames
-names(genet) <- cnames
-  
-dat <- cbind.data.frame(genet,
-                        gg = ifelse(!is.na(genet$`DepMap-essential`),
-                                   "essential","inducible")
+scdev <- readxl::read_xlsx(fn,sheet = "gene_normal",col_names = TRUE, skip=1)
+scdev <- scdev[!is.na(scdev$`log2dev+1`),]
+dim(scdev)
+
+scdev <- cbind.data.frame(genesymbol = scdev$gene,
+                          depmap_esstl = ifelse(!is.na(scdev$`common essential`),
+                                   "essential","inducible"),
+                          colon_ldev = scdev$`log2dev+1`
                   )
-dat <- dat[!is.na(dat$tumorepi+1),]
-table(dat$gg)
+
+table(scdev$depmap_esstl)
 ```
 
 Add some jitter to the values so we can plot the values near 0 and they are not all overlapping.
 
 ```{r jitter}
 set.seed(1234)
-dat$jtumorepi <-jitter(dat$`tumorepi+1`,amount=0.5)
-dat[1,]
+scdev$jcolon_ldev <-jitter(scdev$colon_ldev,amount=0.5)
+head(scdev)
 ```
 
-And save.
-```{r save-devs}
-crcdev <- cbind.data.frame( name = dat$gene,
-                            dev = dat$`tumorepi+1`,
-                            jdev = dat$jtumorepi,
-                            depmap_esstl = dat$`DepMap-essential`)
-#save(crcdev,file="data/crcdev.rda")
-```
+Add Entrez Gene ID.
+```{r}
 
-```{r si}
-sessionInfo()
 ```
 
 

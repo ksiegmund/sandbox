@@ -17,12 +17,15 @@ library(ggplot2)
 
 # Compute Average DNAm by site across intervals
 
-
 ```{r load-data}
 load("data/beta.by.region.rda")
+seqlevels(beta.by.region)
+```
 
+Check that I dropped X and Y chromosomes and compute position of CpG relative to TSS in a strand aware fashion.
+```{r data-table}
 Dt <- data.table(cpgpos = start(beta.by.region),
-                    data.frame(values(beta.by.region)))
+                           data.frame(values(beta.by.region)))
 Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="-",
                   values(beta.by.region)$tss -
                   start(beta.by.region),

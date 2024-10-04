@@ -21,7 +21,7 @@ library(ggplot2)
 ```{r load-data}
 load("data/beta.by.region.rda")
 
-Dt <- data.table(values(beta.by.region))
+Dt <- as.data.table(values(beta.by.region))
 Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="-",
                   values(beta.by.region)$tss -
                   start(beta.by.region),
@@ -36,6 +36,24 @@ Dt$group <- ifelse(Dt$pos<0, 1,
                    ifelse(Dt$pos==0, 2, 3))
 head(Dt)
 ```
+
+Cecilia Greenwood's work reports that beta values are correlated with read depth.
+Let's check out that bias here.
+```{r assoc-beta-depth}
+fit <- lm(beta ~ depth , data = Dt)
+summary(fit)$coef
+```
+How can I take correlation into account? Maybe sample just 200 genes.
+```{r assoc-beta-depth}
+set.seed(101)
+gene.subset <- sample(unique(Dt$tssgene_id),1000)
+fit <- lm(beta ~ depth + factor(tssgene_id), data = Dt[tssgene_id %in% gene.subset])
+summary(fit)$coef[1:5,]
+```
+
+It looks like it could. I did get 1 result with only 200 genes (seed=101) that had p=0.3,
+but when I increase the number of genes, the slight trend is statistically significant. But is this the correct model? Measures are likely correlated within strands. So what is the proper correlation structure?  Is this one equivalent to exchangeable, which is a decent approximation? Maybe if I limit to downstream of TSS. That would be interesting.
+
 
 Let's count the number of CpGs in each position, by strand. I created a variable group, which takes on values 1, 2, 3 depending on whether the CpG is left or right of the TSS. 
 

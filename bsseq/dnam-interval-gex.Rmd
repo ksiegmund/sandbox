@@ -62,6 +62,7 @@ nobs<- table(mDt$pos,
 head(nobs)
 ```
 
+## Stratify by interval averaged DNAm level
 
 How many TSSs are in or not in CpG islands, grouped by average beta value of interval?
 ```{r Dt-counts}
@@ -84,6 +85,8 @@ ggplot(avgbeta) +
         geom_smooth(aes(x=pos,y=avg_beta,color=cat_region_avg_beta)) +
         facet_grid( ~ TSSinCGI)
 ```
+
+## Stratify by gene expression deviance
 
 Now summarize by gene expression deviance instead of average methylation level.
 

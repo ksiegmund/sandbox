@@ -17,6 +17,12 @@ library(ggplot2)
 
 # Compute average DNA methylation upstream and downstream of TSS
 
+update position to be strand specific.
+I'm not sure I conditioned on depth when comparing beta vs avg beta?
+I think I found avg beta is very correlated to beta = sum(M)/# reads in region. This is probably because of correlation in depth across sites < 1000 bps. 
+
+What is variation in depth for a single region?
+
 ```{r load-data}
 load("data/beta.by.region.rda")
 

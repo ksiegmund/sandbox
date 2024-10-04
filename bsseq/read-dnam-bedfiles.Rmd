@@ -32,7 +32,7 @@ fin <- fread(file.path(readdir,"wg_s4c.bed"))
 `r nrow(fin)` CpGs are covered in sample IN (aka N2).
 
 
-Make this a GRange object, and only save sites with coverage 5 or more reads.
+Make this a GRange object, and restrict to chromosomes 1-22, X, Y, on the primary assembly.
 ```{r betan2_gr}
 betan2 <- GRanges(seqnames = fin$V1,
                    IRanges(start = fin$V2,width=1))
@@ -40,9 +40,21 @@ values(betan2) <- DataFrame(beta = fin$V4,
                             depth = fin$V5,
                                 m = fin$V6,
                                 u = fin$V7)
+
+desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
+betan2 <- betan2[seqnames(betan2) %in% desired_chromosomes]
+# Reset seqinfo to only include chromosomes present in the GRanges object
+betan2 <- keepSeqlevels(betan2, seqlevelsInUse(betan2), pruning.mode = "coarse")
+nl <- length(betan2)
+table(seqnames(betan2))
+```
+`r nl` (`r round(nl/nrow(fin),2)*100`\%) CpGs are on the primary assembly
+
+Now require minimum depth of 5.
+```{r read-depth-filter}
 betan2 <- betan2[values(betan2)$depth > 4]
 ```
-`r length(betan2)` CpGs (`r round(length(betan2)/nrow(fin),3)*100` percent) are covered by 5 or more reads.
+`r length(betan2)` (`r round(length(betan2)/nl,2)*100`\%)  CpGs are covered by 5 or more reads.
 
 Wow. That's still a lot of CpGs!
 

@@ -34,7 +34,7 @@ Dt$TSSinCGI <- factor(Dt$TSSinCGI)
 ```
 
 Add gene expression deviance for stratifying DNA methylation data. 
-```{r merge-w-region-variables}
+```{r merge-w-genedev}
 load("data/scdev.rda")
 
 scdev <- data.table(scdev)
@@ -91,7 +91,7 @@ ggplot(avgbeta) +
 Now summarize by gene expression deviance instead of average methylation level.
 
 ```{r Dt-counts-catgexdev}
-ldev <- quantile(mDt$colon_ldev, probs = seq(0, 1, by = 0.24))
+ldev <- quantile(mDt$colon_ldev, probs = seq(0, 1, by = 0.25))
 mDt$cat_colon_ldev <- factor(cut(mDt$colon_ldev, breaks = ldev, include.lowest = TRUE, labels = FALSE))
 
 mDt <- mDt[order(TSSinCGI,cat_colon_ldev)]
@@ -99,7 +99,7 @@ mDt[, .(unique_tss_count = uniqueN(tssgene_id)),
               by = c("TSSinCGI","cat_colon_ldev")]
 ```
 
-```{r avgbeta}
+```{r avgbeta-scdev}
 mDt <- mDt[order(TSSinCGI,cat_colon_ldev,pos)]
 avgbeta <- mDt[, .(avg_beta = mean(beta)), 
                   by = c("TSSinCGI","cat_colon_ldev","pos")]

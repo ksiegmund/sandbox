@@ -44,7 +44,7 @@ fit <- lm(beta ~ depth , data = Dt)
 summary(fit)$coef
 ```
 How can I take correlation into account? Maybe sample just 200 genes.
-```{r assoc-beta-depth}
+```{r assoc-beta-depth-adj-geneinterval}
 set.seed(101)
 gene.subset <- sample(unique(Dt$tssgene_id),1000)
 fit <- lm(beta ~ depth + factor(tssgene_id), data = Dt[tssgene_id %in% gene.subset])

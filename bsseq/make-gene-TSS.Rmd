@@ -93,12 +93,12 @@ rmarkdown::render("cpgi-regions.Rmd")
 
 f1 <- findOverlaps(min_tss_gr,cgi_gr)
 f1
-values(min_tss_gr)$inCGI <- 0
-values(min_tss_gr)$inCGI[queryHits(f1)] <- 1
-table(values(min_tss_gr)$inCGI)
+values(min_tss_gr)$TSSinCGI <- 0
+values(min_tss_gr)$TSSinCGI[queryHits(f1)] <- 1
+table(values(min_tss_gr)$TSSinCGI)
 ```
 
-## `r as.character(sum(values(min_tss_gr)$inCGI))` (`r round(mean(values(min_tss_gr)$inCGI),2)*100`\%) of the TSSs are in UCSC defined CpG islands.
+## `r as.character(sum(values(min_tss_gr)$TSSinCGI))` (`r round(mean(values(min_tss_gr)$TSSinCGI),2)*100`\%) of the TSSs are in UCSC defined CpG islands.
 
 
 ```{r save-data}

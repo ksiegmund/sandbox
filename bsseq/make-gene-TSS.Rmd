@@ -91,9 +91,14 @@ min_tss_gr <- keepSeqlevels(min_tss_gr, seqlevelsInUse(min_tss_gr), pruning.mode
 Is it correct to assume each gene is only on 1 strand? (I made that assumption)
 If I'm wrong, then I've saved the positive strand only.
 
+### `r sum(seqnames(min_tss_gr)=="chrX")` (`r round(mean(seqnames(min_tss_gr)=="chrX"),3)*100`\%) are on ChrX
+
+### `r sum(seqnames(min_tss_gr)=="chrY")` (`r round(mean(seqnames(min_tss_gr)=="chrY"),3)*100`\%) are on ChrY
+
+
 Let's note if the TSS is in a CpG island.
-```{r overlap-cgi}
-rmarkdown::render("cpgi-regions.Rmd")
+```{r overlap-cgi, message=FALSE}
+rmarkdown::render("cpgi-regions.Rmd", quiet =TRUE)
 
 f1 <- findOverlaps(min_tss_gr,cgi_gr)
 f1
@@ -102,7 +107,8 @@ values(min_tss_gr)$TSSinCGI[queryHits(f1)] <- 1
 table(values(min_tss_gr)$TSSinCGI)
 ```
 
-## `r as.character(sum(values(min_tss_gr)$TSSinCGI))` (`r round(mean(values(min_tss_gr)$TSSinCGI),2)*100`\%) of the TSSs are in UCSC defined CpG islands.
+### `r as.character(sum(values(min_tss_gr)$TSSinCGI))` (`r round(mean(values(min_tss_gr)$TSSinCGI),2)*100`\%) of the TSSs are in UCSC defined CpG islands.
+
 
 Clean levels of strand
 ```{r}

@@ -69,7 +69,7 @@ sum(num.in.intervals)
 
 Let's get back to assigning CpGs to intervals.
 First, I give my CpGs a unique cpg_id, assigning them in 
-sequence order. Then, I save the CpGs from my overlap object (queryHits(fO)), and add annotation information from the intervals to which the CpGs mapped (subjectHits(fO)). I will add TSS gene id, end of interval & strand.
+sequence order. Then, I save the CpGs from my overlap object (queryHits(fO)), and add annotation information from the intervals to which the CpGs mapped (subjectHits(fO)). I will add TSS gene id, TSS location, strand, and indicator whether TSS is in a CpG island.
 
 ```{r filt-cpgs}
 values(betan2)$cpg_id <- c(1:length(betan2))
@@ -82,13 +82,13 @@ values(beta.by.region)$tssgene_id <-
             start(min_tss_gr[subjectHits(fO)])
     values(beta.by.region)$tsstrand <-
             strand(tss_resized[subjectHits(fO)])
+     values(beta.by.region)$TSSinCGI <- 
+            values(min_tss_gr[subjectHits(fO)])$TSSinCGI
 ```
 
 Let's check the object.
 I should have the same numbers of CpGs assigned to
 multiple intervals as computed from the above query.
-
-Need to make tss500 strand aware.  better yet. Maybe I should use tsslocation. 
 
 ```{r}
 table(table(values(beta.by.region)$cpg_id))
@@ -96,12 +96,13 @@ table(table(values(beta.by.region)$cpg_id))
 
 ```{r}
 beta.by.region
+
 save(beta.by.region,file="data/beta.by.region.rda")
 ```
 
 Done!
 
 ```{r sI}
-sessionInfo()
+#sessionInfo()
 ```
 

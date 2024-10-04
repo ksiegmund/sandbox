@@ -12,7 +12,6 @@ knitr::opts_chunk$set(echo = TRUE)
 Read in the deviances Kelly computed for single-cell colon data.
 
 ```{r read-colon, warning=FALSE}
-#fn <-  c("~kims/Google Drive/My Drive/MyFolder/People/Darryl Shibata/plasticity/20230123/forKIMnormaltumordeviancegraph1-23.xlsx")
 fn <-  c("~kims/Google Drive/My Drive/Data/hpc-archive/annotations/forKIMnormaltumordeviancegraph1-23.xlsx")
 
 # grab row 2 data as column names for columns: 1-4, 27
@@ -38,7 +37,7 @@ head(scdev)
 ```
 
 
-How do I map gene symbols to entrez gene ids
+Map gene symbols to entrez gene ids.
 ```{r}
 library(AnnotationDbi)
 library(org.Hs.eg.db) 

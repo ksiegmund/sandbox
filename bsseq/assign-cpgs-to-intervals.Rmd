@@ -23,6 +23,8 @@ For each CpG, save interval name, interval start site, and strand. Later we'll s
 load("data/min_tss_gr.rda")
 desired_chromosomes <- paste0("chr",c(as.character(1:22)))
 min_tss_gr <- min_tss_gr[seqnames(min_tss_gr) %in% desired_chromosomes]
+min_tss_gr <- keepSeqlevels(min_tss_gr, seqlevelsInUse(min_tss_gr), pruning.mode = "coarse")
+seqlevels(min_tss_gr)
 
 min_tss_gr <- sort(min_tss_gr)
 # Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
@@ -86,6 +88,10 @@ values(beta.by.region)$tssgene_id <-
             strand(tss_resized[subjectHits(fO)])
      values(beta.by.region)$TSSinCGI <- 
             values(min_tss_gr[subjectHits(fO)])$TSSinCGI
+     
+
+beta.by.region <- keepSeqlevels(beta.by.region, seqlevelsInUse(beta.by.region), pruning.mode = "coarse")
+seqlevels(beta.by.region)
 ```
 
 Let's check the object.

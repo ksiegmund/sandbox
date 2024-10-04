@@ -25,10 +25,14 @@ txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 
 transcripts_gr <- transcripts(txdb)
 tss_gr <- resize(transcripts_gr, width = 1, fix = "start")
-tss_gr[1]
-start(tss_gr[1])
+transcripts_gr
+head(start(tss_gr))
+tail(start(tss_gr))
+```
 
+Start() picked the upstream location depending on the strand information.
 
+```{r get-gene-level-tss}
 # Map transcript IDs to gene IDs
 gene_tx_map <- AnnotationDbi::select(txdb, keys = as.character(transcripts_gr$tx_id), 
                                      columns = "GENEID", keytype = "TXID")
@@ -100,6 +104,13 @@ table(values(min_tss_gr)$TSSinCGI)
 
 ## `r as.character(sum(values(min_tss_gr)$TSSinCGI))` (`r round(mean(values(min_tss_gr)$TSSinCGI),2)*100`\%) of the TSSs are in UCSC defined CpG islands.
 
+Clean levels of strand
+```{r}
+strand(min_tss_gr) <-  droplevels(strand(min_tss_gr))
+table(strand(min_tss_gr))
+```
+
+I have no idea why this doesn't work!
 
 ```{r save-data}
 save(min_tss_gr,file="data/min_tss_gr.rda")

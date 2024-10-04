@@ -21,9 +21,16 @@ library(ggplot2)
 ```{r load-data}
 load("data/beta.by.region.rda")
 
-Dt <- as.data.table(values(beta.by.region))
-Dt$pos <- start(beta.by.region) - 
-                values(beta.by.region)$tss500 + 1 - 501
+Dt <- data.table(values(beta.by.region))
+Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="-",
+                  values(beta.by.region)$tss -
+                  start(beta.by.region),
+                 start(beta.by.region) - 
+                 values(beta.by.region)$tss)
+head(Dt)
+Dt$tsstrand <- factor(Dt$tsstrand)
+Dt$TSSinCGI <- factor(Dt$TSSinCGI)
+
 
 Dt$group <- ifelse(Dt$pos<0, 1,
                    ifelse(Dt$pos==0, 2, 3))

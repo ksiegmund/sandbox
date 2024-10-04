@@ -114,6 +114,13 @@ ggplot(avgbeta) +
         facet_grid( ~ TSSinCGI)
 ```
 
+## Repeat above for conservation
+
+## Stratify by number of CpGs in interval (instead of avg beta)
+
+
+
+
 ```{r sI}
 sessionInfo()
 ```

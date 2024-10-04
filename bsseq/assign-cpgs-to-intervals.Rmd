@@ -14,15 +14,17 @@ library(GenomicFeatures)
 ```
 
 ## TASK: Assign sample DNAm values to genomic intervals. 
+### Subset TSSs to chromosomes 1-22 (>95\%)
 For each CpG, save interval name, interval start site, and strand. Later we'll summarize the average DNAm by position in the interval and strand.
   
 
-1. Load the saved TSSs and extend interval to 500 bases up- and downstream.
+1. Load the saved TSSs, restrict to chromosomes 1-22, and extend interval to 500 bases up- and downstream.
 ```{r tss-data}
 load("data/min_tss_gr.rda")
+desired_chromosomes <- paste0("chr",c(as.character(1:22)))
+min_tss_gr <- min_tss_gr[seqnames(min_tss_gr) %in% desired_chromosomes]
+
 min_tss_gr <- sort(min_tss_gr)
-
-
 # Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
 tss_resized <- resize(min_tss_gr, width = 1001, fix = "center")
 ```
@@ -33,7 +35,7 @@ There are `r length(tss_resized)` TSSs.
 2. Now grab a DNA methylation dataset. The file below
 is setup to read sample IN (aka N2) and save all CpGs that have coverge of 5 or more reads.
 ```{r dnam-data, message=FALSE}
-rmarkdown::render("read-dnam-bedfiles.Rmd")
+rmarkdown::render("read-dnam-bedfiles.Rmd", quiet = TRUE)
 ```
 
 We're starting with `r length(betan2)` measured CpGs.
@@ -96,7 +98,11 @@ table(table(values(beta.by.region)$cpg_id))
 
 ```{r}
 beta.by.region
+```
 
+Hmmmm. Betas around 0.5 on Y chromosome. Let's remember this for later. We should begin by analyzing the X and Y chromosomes separately.
+
+```{r save}
 save(beta.by.region,file="data/beta.by.region.rda")
 ```
 

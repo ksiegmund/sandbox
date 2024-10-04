@@ -100,7 +100,6 @@ table(table(values(beta.by.region)$cpg_id))
 beta.by.region
 ```
 
-Hmmmm. Betas around 0.5 on Y chromosome. Let's remember this for later. We should begin by analyzing the X and Y chromosomes separately.
 
 ```{r save}
 save(beta.by.region,file="data/beta.by.region.rda")

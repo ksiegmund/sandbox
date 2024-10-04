@@ -22,13 +22,15 @@ library(ggplot2)
 load("data/beta.by.region.rda")
 
 Dt <- data.table(cpgpos = start(beta.by.region),
-                    as.data.frame(values(beta.by.region)))
+                    data.frame(values(beta.by.region)))
 Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="-",
                   values(beta.by.region)$tss -
                   start(beta.by.region),
                  start(beta.by.region) - 
                  values(beta.by.region)$tss)
 head(Dt)
+Dt$tsstrand <- factor(Dt$tsstrand)
+Dt$TSSinCGI <- factor(Dt$TSSinCGI)
 ```
 
 Add gene expression deviance for stratifying DNA methylation data. 
@@ -40,11 +42,18 @@ scdev <- scdev[!is.na(gene_ids)]
 mDt <- merge(x = Dt,
              y = scdev,
              by.x = c("tssgene_id"),
-             by.y = c("gene_ids"),
-             all.y = TRUE)
+             by.y = c("gene_ids"))
 mDt
 ```
 
+Add interval average beta for stratifying DNA methylation data. 
+```{r merge-w-region-variables}
+load("data/filt_sum.tssregion.rda")
+
+mDt <- merge(x = mDt,
+             y = filt_sum.tssregion)
+mDt
+```
 
 Let's count the number of CpGs in each position, by strand.
 ```{r}
@@ -54,25 +63,52 @@ head(nobs)
 ```
 
 
-How many intervals are on the plus strand and how many are on the minus strand, grouped by average beta value of interval?
+How many TSSs are in or not in CpG islands, grouped by average beta value of interval?
 ```{r Dt-counts}
-mDt <- mDt[order(tsstrand)]
+mDt <- mDt[order(TSSinCGI,cat_region_avg_beta)]
 mDt[, .(unique_tss_count = uniqueN(tssgene_id)), 
-              by = c("tsstrand")]
+              by = c("TSSinCGI","cat_region_avg_beta")]
 ```
 
 ```{r avgbeta}
+mDt <- mDt[order(TSSinCGI,cat_region_avg_beta,pos)]
 avgbeta <- mDt[, .(avg_beta = mean(beta)), 
-                  by = c("tsstrand","pos")]
-avgbeta <- avgbeta[order(tsstrand,pos)]
-avgbeta
+                  by = c("TSSinCGI","cat_region_avg_beta","pos")]
+avgbeta <- avgbeta[order(TSSinCGI,cat_region_avg_beta,pos)]
+#avgbeta
 ```
 
 ```{r}
 ggplot(avgbeta) +
-        geom_point(aes(x=pos,y=avg_beta,color=factor(tsstrand), alpha=0.3)) +
-        geom_smooth(aes(x=pos,y=avg_beta,color=factor(tsstrand))) +
-        facet_grid( ~ as.factor(tsstrand))
+        geom_point(aes(x=pos,y=avg_beta,color=cat_region_avg_beta), alpha=0.3) +
+        geom_smooth(aes(x=pos,y=avg_beta,color=cat_region_avg_beta)) +
+        facet_grid( ~ TSSinCGI)
+```
+
+Now summarize by gene expression deviance instead of average methylation level.
+
+```{r Dt-counts-catgexdev}
+ldev <- quantile(mDt$colon_ldev, probs = seq(0, 1, by = 0.24))
+mDt$cat_colon_ldev <- factor(cut(mDt$colon_ldev, breaks = ldev, include.lowest = TRUE, labels = FALSE))
+
+mDt <- mDt[order(TSSinCGI,cat_colon_ldev)]
+mDt[, .(unique_tss_count = uniqueN(tssgene_id)), 
+              by = c("TSSinCGI","cat_colon_ldev")]
+```
+
+```{r avgbeta}
+mDt <- mDt[order(TSSinCGI,cat_colon_ldev,pos)]
+avgbeta <- mDt[, .(avg_beta = mean(beta)), 
+                  by = c("TSSinCGI","cat_colon_ldev","pos")]
+avgbeta <- avgbeta[order(TSSinCGI,cat_colon_ldev,pos)]
+#avgbeta
+```
+
+```{r}
+ggplot(avgbeta) +
+        geom_point(aes(x=pos,y=avg_beta,color=cat_colon_ldev), alpha=0.3) +
+        geom_smooth(aes(x=pos,y=avg_beta,color=cat_colon_ldev)) +
+        facet_grid( ~ TSSinCGI)
 ```
 
 ```{r sI}

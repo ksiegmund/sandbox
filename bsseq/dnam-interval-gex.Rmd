@@ -31,13 +31,16 @@ Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="-",
 head(Dt)
 ```
 
-Add categorical region average beta variable to stratify plots of average DNA methylation by this categorial variable (avg_beta < 0.05, between 0.05-0.95,  > 0.95). Also stratify by proportion of CpGs in CGI. 
+Add gene expression deviance for stratifying DNA methylation data. 
 ```{r merge-w-region-variables}
-load("data/filt_sum.tssregion.rda")
+load("data/scdev.rda")
 
-mDt <- merge(Dt,
-             filt_sum.tssregion,
-             by = "tssgene_id",
+scdev <- data.table(scdev)
+scdev <- scdev[!is.na(gene_ids)]
+mDt <- merge(x = Dt,
+             y = scdev,
+             by.x = c("tssgene_id"),
+             by.y = c("gene_ids"),
              all.y = TRUE)
 mDt
 ```
@@ -46,34 +49,30 @@ mDt
 Let's count the number of CpGs in each position, by strand.
 ```{r}
 nobs<- table(mDt$pos,
-             mDt$tsstrand,mDt$cat_region_avg_beta,mDt$region_inCGI)
+             mDt$tsstrand)
 head(nobs)
 ```
 
 
 How many intervals are on the plus strand and how many are on the minus strand, grouped by average beta value of interval?
 ```{r Dt-counts}
-mDt <- mDt[order(,region_inCGI,cat_region_avg_beta,tsstrand)]
+mDt <- mDt[order(tsstrand)]
 mDt[, .(unique_tss_count = uniqueN(tssgene_id)), 
-              by = c("region_inCGI",
-                     "cat_region_avg_beta","tsstrand")]
+              by = c("tsstrand")]
 ```
 
 ```{r avgbeta}
 avgbeta <- mDt[, .(avg_beta = mean(beta)), 
-                  by = c("region_inCGI",
-                         "cat_region_avg_beta","tsstrand","pos")]
-avgbeta <- avgbeta[order(region_inCGI,cat_region_avg_beta,tsstrand,pos)]
+                  by = c("tsstrand","pos")]
+avgbeta <- avgbeta[order(tsstrand,pos)]
 avgbeta
 ```
 
 ```{r}
 ggplot(avgbeta) +
-        geom_point(aes(x=pos,y=avg_beta,color=factor(region_inCGI), alpha=0.3)) +
-        geom_smooth(aes(x=pos,y=avg_beta,color=factor(region_inCGI))) +
-        facet_grid(as.factor(cat_region_avg_beta) ~ 
-                     as.factor(region_inCGI),
-                   scales = "free_y")
+        geom_point(aes(x=pos,y=avg_beta,color=factor(tsstrand), alpha=0.3)) +
+        geom_smooth(aes(x=pos,y=avg_beta,color=factor(tsstrand))) +
+        facet_grid( ~ as.factor(tsstrand))
 ```
 
 ```{r sI}

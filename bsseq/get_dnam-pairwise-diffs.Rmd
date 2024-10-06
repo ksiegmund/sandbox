@@ -1,0 +1,93 @@
+---
+title: "Compute PWD for 2 samples"
+author: "ks"
+date: "2024-10-04"
+output: html_document
+---
+
+```{r setup-nest, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries-nest}
+library(GenomicFeatures)
+library(AnnotationDbi)
+library(rtracklayer)
+library(data.table)
+```
+
+Read in the beta values from two samples and compute the pairwise differences.
+```{r bed_file_dirs}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+#readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
+```
+
+These files are not really BED files because of the header line. Read them in using data.table and create GRanges object.
+```{r read_betas}
+library(data.table)
+f1in <- fread(file.path(readdir,"wg_s1c.bed"))
+f2in <- fread(file.path(readdir,"wg_s4c.bed"))
+```
+`r nrow(f1in)` CpGs are covered in sample 1 and
+`r nrow(f2in)` in sample 2.
+
+
+Make this a GRange object, and restrict to chromosomes 1-22, X, Y, on the primary assembly.
+```{r beta_gr}
+beta.sample1 <- GRanges(seqnames = f1in$V1,
+                   IRanges(start = f1in$V2,width=1))
+values(beta.sample1) <- DataFrame(s1.beta = f1in$V4,
+                            s1.depth = f1in$V5,
+                                s1.m = f1in$V6,
+                                s1.u = f1in$V7)
+
+desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
+beta.sample1 <- beta.sample1[seqnames(beta.sample1) %in% desired_chromosomes]
+# Reset seqinfo to only include chromosomes present in the GRanges object
+beta.sample1 <- keepSeqlevels(beta.sample1, seqlevelsInUse(beta.sample1), pruning.mode = "coarse")
+nr1 <- length(beta.sample1)
+
+beta.sample2 <- GRanges(seqnames = f2in$V1,
+                   IRanges(start = f2in$V2,width=1))
+values(beta.sample2) <- DataFrame(s2.beta = f2in$V4,
+                            s2.depth = f2in$V5,
+                                s2.m = f2in$V6,
+                                s2.u = f2in$V7)
+
+beta.sample2 <- beta.sample2[seqnames(beta.sample2) %in% desired_chromosomes]
+# Reset seqinfo to only include chromosomes present in the GRanges object
+beta.sample2 <- keepSeqlevels(beta.sample2, seqlevelsInUse(beta.sample2), pruning.mode = "coarse")
+nr2 <- length(beta.sample2)
+```
+
+Sample 1: `r nr1` (`r round(nr1/nrow(f1in),3)*100`\%) CpGs are on the primary assembly  
+Sample 2: `r nr2` (`r round(nr2/nrow(f2in),3)*100`\%) CpGs are on the primary assembly
+
+Now require minimum depth of 5 in both samples and compute the pairwise difference.
+```{r read-depth-filter}
+beta.sample1 <- beta.sample1[values(beta.sample1)$s1.depth > 4]
+beta.sample2 <- beta.sample2[values(beta.sample2)$s2.depth > 4]
+
+fO <- findOverlaps(beta.sample1,beta.sample2)
+fO
+
+# restrict to overlapping CpGs
+overlap.sample1 <- beta.sample1[queryHits(fO)]
+overlap.sample2 <- beta.sample2[subjectHits(fO)]
+pwd_gr <- overlap.sample1
+values(pwd_gr) <- data.frame(values(overlap.sample1),
+                             values(overlap.sample2))
+rm(overlap.sample1,overlap.sample2)
+
+values(pwd_gr) <- data.frame( pwd = abs(values(pwd_gr)$s1.beta - values(pwd_gr)$s2.beta),
+                              values(pwd_gr))
+values(pwd_gr)
+```
+
+
+
+
+```{r sI-nest}
+sessionInfo()
+```
+

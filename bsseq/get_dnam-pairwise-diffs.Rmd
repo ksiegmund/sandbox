@@ -81,7 +81,7 @@ rm(overlap.sample1,overlap.sample2)
 
 values(pwd_gr) <- data.frame( pwd = abs(values(pwd_gr)$s1.beta - values(pwd_gr)$s2.beta),
                               values(pwd_gr))
-values(pwd_gr)
+pwd_gr
 ```
 
 

@@ -1,0 +1,119 @@
+---
+title: "Assign CpGs to Intevals"
+author: "ks"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicFeatures)
+```
+
+## TASK: Assign PWD values to genomic intervals. 
+### Subset TSSs to chromosomes 1-22 (>95\%)
+For each CpG, save interval name, interval start site, and strand. Later we'll summarize the average PWD by position in the interval and strand.
+  
+
+1. Load the saved TSSs, restrict to chromosomes 1-22, and extend interval to 500 bases up- and downstream.
+```{r tss-data}
+load("data/min_tss_gr.rda")
+desired_chromosomes <- paste0("chr",c(as.character(1:22)))
+min_tss_gr <- min_tss_gr[seqnames(min_tss_gr) %in% desired_chromosomes]
+min_tss_gr <- keepSeqlevels(min_tss_gr, seqlevelsInUse(min_tss_gr), pruning.mode = "coarse")
+seqlevels(min_tss_gr)
+
+min_tss_gr <- sort(min_tss_gr)
+# Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
+tss_resized <- resize(min_tss_gr, width = 1001, fix = "center")
+```
+
+There are `r length(tss_resized)` TSSs.
+
+
+2. Now grab a DNA methylation PWDs. The file below
+is setup to read sample JN,IN (aka N1,N2) and save all CpGs that have coverge of 5 or more reads.
+```{r dnam-data, message=FALSE}
+rmarkdown::render("get_dnam-pairwise-diffs.Rmd", quiet = TRUE)
+```
+
+We're starting with `r length(pwd_gr)` measured CpGs.
+  
+3. Overlap the 2 GRange objects, CpGs with TSS intervals. 
+
+One thing I discovered is that I have overlapping TSS intervals.  I will keep their full overlapping lengths and allow some CpGs to map to multiple intervals.
+
+```{r overlap}
+fO <- findOverlaps(pwd_gr,tss_resized)
+fO
+```
+Number of CpGs in intervals: `r length(fO)`  
+Number of unique CpGs in intervals: `r length(unique(queryHits(fO)))`   
+
+How are these distributed across different TSS intervals?
+
+```{r describe-fO}
+num.in.intervals <- table(table(queryHits(fO)))
+num.in.intervals
+```
+
+`r num.in.intervals[1]` are in 1 TSS interval  
+`r num.in.intervals[2]` are in 2 TSS intervals  
+`r num.in.intervals[3]` are in 3 TSS intervals. 
+ ...  
+ 
+If I sum these, I get back to the number of unique CpGs.
+```{r}
+sum(num.in.intervals)
+```
+
+
+Let's get back to assigning CpGs to intervals.
+First, I give my CpGs a unique cpg_id, assigning them in 
+sequence order. Then, I save the CpGs from my overlap object (queryHits(fO)), and add annotation information from the intervals to which the CpGs mapped (subjectHits(fO)). I will add TSS gene id, TSS location, strand, and indicator whether TSS is in a CpG island.
+
+```{r filt-cpgs}
+values(pwd_gr)$cpg_id <- c(1:length(pwd_gr))
+pwd.by.region <- pwd_gr[queryHits(fO)]
+values(pwd.by.region)$tssgene_id <- 
+      values(tss_resized[subjectHits(fO)])$gene_id
+
+# go back to tss position. Row order for min_tss_gr is identical to row order for tss_resized; tss is one base, start gets it 
+    values(pwd.by.region)$tss <- 
+            start(min_tss_gr[subjectHits(fO)])
+    values(pwd.by.region)$tsstrand <-
+            strand(tss_resized[subjectHits(fO)])
+     values(pwd.by.region)$TSSinCGI <- 
+            values(min_tss_gr[subjectHits(fO)])$TSSinCGI
+     
+
+pwd.by.region <- keepSeqlevels(pwd.by.region, seqlevelsInUse(pwd.by.region), pruning.mode = "coarse")
+seqlevels(pwd.by.region)
+```
+
+Let's check the object.
+I should have the same numbers of CpGs assigned to
+multiple intervals as computed from the above query.
+
+```{r}
+table(table(values(pwd.by.region)$cpg_id))
+```
+
+```{r}
+pwd.by.region
+```
+
+
+```{r save}
+save(pwd.by.region,file="data/pwd.by.region.rda")
+```
+
+Done!
+
+```{r sI}
+#sessionInfo()
+```
+

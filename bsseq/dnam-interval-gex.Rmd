@@ -112,7 +112,7 @@ avgbeta <- avgbeta[order(TSSinCGI,cat_colon_ldev,pos)]
 
 ```{r}
 ggplot(avgbeta) +
-        geom_point(aes(x=pos,y=avg_beta,color=cat_colon_ldev), alpha=0.3) +
+        geom_point(aes(x=pos,y=avg_beta,color=cat_colon_ldev), alpha=0.2) +
         geom_smooth(aes(x=pos,y=avg_beta,color=cat_colon_ldev)) +
         facet_grid( ~ TSSinCGI)
 ```

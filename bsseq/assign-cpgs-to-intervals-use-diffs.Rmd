@@ -28,7 +28,7 @@ seqlevels(min_tss_gr)
 
 min_tss_gr <- sort(min_tss_gr)
 # Resize to extend 500 bases upstream and downstream (i.e., total width of 1001 bp)
-tss_resized <- resize(min_tss_gr, width = 1001, fix = "center")
+tss_resized <- resize(min_tss_gr, width = 3001, fix = "center")
 ```
 
 There are `r length(tss_resized)` TSSs.

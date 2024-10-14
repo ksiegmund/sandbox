@@ -83,7 +83,7 @@ avgpwd <- avgpwd[order(TSSinCGI,cat_region_avg_beta,pos)]
 
 ```{r}
 ggplot(avgpwd) +
-        geom_point(aes(x=pos,y=avg_pwd,color=cat_region_avg_beta), alpha=0.3) +
+        #geom_point(aes(x=pos,y=avg_pwd,color=cat_region_avg_beta), alpha=0.3) +
         geom_smooth(aes(x=pos,y=avg_pwd,color=cat_region_avg_beta)) +
         facet_grid( ~ TSSinCGI)
 ```
@@ -110,7 +110,7 @@ avgpwd <- avgpwd[order(TSSinCGI,cat_colon_ldev,pos)]
 
 ```{r}
 ggplot(avgpwd) +
-        geom_point(aes(x=pos,y=avg_pwd,color=cat_colon_ldev), alpha=0.3) +
+        #geom_point(aes(x=pos,y=avg_pwd,color=cat_colon_ldev), alpha=0.3) +
         geom_smooth(aes(x=pos,y=avg_pwd,color=cat_colon_ldev)) +
         facet_grid( ~ TSSinCGI)
 ```

@@ -66,12 +66,6 @@ depE <- mDt[depmap_esstl=="essential"]
 dim(depE)
 ```
 
-How many genes are there, and what fraction have a TSS in a CpG island
-```{r}
-
-```
-
-
 ```{r}
 ggplot(depE) +
         #geom_point(aes(x=pos,y=avg_beta,color=genesymbol, group=genesymbol), alpha=0.3) +
@@ -81,18 +75,22 @@ ggplot(depE) +
         theme_minimal()
 ```
 
+That's a mess of lines.   
+
+How many genes did I plot?
 
 ```{r}
 depE[, uniqueN(genesymbol)]
 ```
 
+How many had the TSS in CpG islands?  (80\%)
 ```{r}
 first_occurrences <- unique(depE, by = "genesymbol")
 table(first_occurrences$TSSinCG)
 mean(first_occurrences$TSSinCG)
 ```
 
-Let's plot 5 genes from each category TSS in/not in CpG island. Visual inspection shows me that the first 10 genes will actually give me 6 with TSS in CpG island, 4 not. Let's start there.
+Let's plot a handful to see what's happening. Visual inspection shows me that the first 10 genes will actually give me 6 with TSS in CpG island, 4 not. Let's start there.
 ```{r}
 depEmatch <- depE[is.element(genesymbol,first_occurrences$genesymbol[1:10])]
 ```
@@ -105,6 +103,7 @@ ggplot(depEmatch) +
         facet_grid( ~ TSSinCGI)
 ```
 
+Now let's plot the smoothed values.
 
 ```{r}
 ggplot(depEmatch) +

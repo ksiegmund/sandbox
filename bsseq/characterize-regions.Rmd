@@ -37,15 +37,23 @@ table(values(beta.by.region)$inCGI)
 Fraction of CpGs in CpG islands = `r round(mean(values(beta.by.region)$inCGI),2)`
 
 
-```{r compute-position-relative-to-TSS}
-Dt <- as.data.table(values(beta.by.region))
-Dt$pos <- start(beta.by.region) - 
-                values(beta.by.region)$tss500 + 1 - 501
+Compute position of CpG relative to TSS in a strand aware fashion.
+```{r compute-position-rel-to-TSS-strand-aware}
+Dt <- data.table(cpgpos = start(beta.by.region),
+                           data.frame(values(beta.by.region)))
+Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="-",
+                  values(beta.by.region)$tss -
+                  start(beta.by.region),
+                 start(beta.by.region) - 
+                 values(beta.by.region)$tss)
 
 Dt$group <- ifelse(Dt$pos<0, 1,
                    ifelse(Dt$pos==0, 2, 3))
 head(Dt)
+Dt$tsstrand <- factor(Dt$tsstrand)
+Dt$TSSinCGI <- factor(Dt$TSSinCGI)
 ```
+
 
 Let's count the number of CpGs by region, the proportion of CpGs in CGIs, avg_beta, sd_beta, and study their relationship. 
 
@@ -74,10 +82,12 @@ filt_sum.tssregion <- sum.tssregion[ region_n_CpG > 1 ]
 filt_sum.tssregion <- 
                 filt_sum.tssregion[,.(
                   tssgene_id = tssgene_id,
+                  region_n_CpG = region_n_CpG,
                   region_inCGI = ifelse(region_prop_inCGI==0,0,1),
                   cat_region_avg_beta = 
                       ifelse(region_avg_beta < 0.05,1,
                       ifelse(region_avg_beta > 0.95,3,2)))]
+
 filt_sum.tssregion$cat_region_avg_beta <-
    factor(filt_sum.tssregion$cat_region_avg_beta,
                   levels=c("1","2","3")  ,

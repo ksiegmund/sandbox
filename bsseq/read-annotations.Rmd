@@ -1,5 +1,5 @@
 ---
-title: "Read gene annotations"
+title: "Science Paper ATAC-seq peak datafiles"
 author: "ks"
 date: "2024-10-02"
 output: html_document
@@ -35,7 +35,7 @@ library(data.table)
 
 # calls from Individual replicates
 fin <- fread(file.path(readdir,"Cancer_Type_Peaks/COAD_peakset.csv"))
-fin
+#fin
 ```
 
 Make this a GRange object.
@@ -46,12 +46,20 @@ values(peakset) <- DataFrame(fin[,-c("V1","seqnames","start","end","width","stra
 peakset
 ```
 
-What do we have?  
+What do we have?  `r length(unique(peakset$GroupReplicate))` unique 'GroupReplicates'.   
+How many peaks for each replicate?
 ```{r}
-length(unique(peakset$GroupReplicate))
-table(peakset$GroupReplicate)
+Dt <- data.table(GroupReplicate = values(peakset)$GroupReplicate)
+Dt <- Dt[order(GroupReplicate)]
+Dt[, .(number_of_peaks = .N),   by = c("GroupReplicate")]
 ```
-These are peaks from 2 replicates on 12 samples. Question: are these from the cancer cells only? I'm hoping yes.
+These are peaks from 2 replicates on 12 COAD samples. Question: are these from the cancer cells only? I'm hoping yes, but not sure how to check that.
+
+```{r}
+summary(width(peakset))
+```
+All widths are standardized to 501bps.
+
 
 Ask Yichen to compare .Rep1 and .Rep2. from matching samples
 and summarize number of overlapping peaks and number of peaks unique to each replicate. Do this for all 12 samples. Then create a new dataset for the 12 samples, saving the union of the overlapping intervals.
@@ -64,7 +72,7 @@ Now let's see what is provided in Cancer_cleaned_Cancer_peakset.tar.gz
 ```{r read-cleaned-peakset}
 
 fin <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/COAD_cleaned_motifs.csv/COAD_cleaned_motifs.csv"))
-fin
+#fin
 ```
 
 
@@ -87,10 +95,31 @@ summary(width(coad_motif_gr))
 ```
 These must be the different motif lengths.  It would be good to look up a few to see what the motif is for these transcription factors.  And then go to these locations on the genome browser and see if it matches the motif.
 
-How many intervals for CTCF?
-```{r}
-coad_motif_gr[values(coad_motif_gr)$group_name=="CTCF"]
+How many locations are there for each TF?
+```{r binding-sites}
+summary(c(table(values(coad_motif_gr)$group_name)))
 ```
+
+Which TF has the most peaks? (1.2 million)
+```{r find-max}
+tb <- table(values(coad_motif_gr)$group_name)
+tb[which(tb==max(tb))]
+```
+
+Here are some papers mentioning that TF.
+https://academic.oup.com/nar/article/45/11/6572/3852041    
+https://www.mdpi.com/1422-0067/23/17/9956
+
+
+## How many intervals for CTCF?
+```{r}
+ctcf_motif <- coad_motif_gr[values(coad_motif_gr)$group_name=="CTCF"]
+ctcf_motif
+```
+
+`r length(ctcf_motif)` intervals of width 
+`r unique(width(ctcf_motif))` bps.
+
 
 Are they on all chromosomes?
 ```{r}
@@ -98,20 +127,6 @@ table(seqnames(coad_motif_gr[values(coad_motif_gr)$group_name=="CTCF"]))
 ```
 
 Yes.
-
-How many peaks are there for each TF?
-```{r binding-sites}
-summary(c(table(values(coad_motif_gr)$group_name)))
-```
-
-What has the most peaks?
-```{r find-max}
-tb <- table(values(coad_motif_gr)$group_name)
-tb[which(tb==max(tb))]
-```
-
-https://academic.oup.com/nar/article/45/11/6572/3852041
-https://www.mdpi.com/1422-0067/23/17/9956
 
 
 

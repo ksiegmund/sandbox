@@ -49,7 +49,7 @@ mDt <- merge(x = Dt,
 mDt
 ```
 
-Add interval average beta for stratifying DNA methylation data. 
+Add interval average beta for stratifying DNA methylation data. Note:  This was calculated from 1 sample, not 2.
 ```{r merge-w-region-variables}
 load("data/filt_sum.tssregion.rda")
 

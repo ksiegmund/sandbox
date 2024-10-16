@@ -1,0 +1,186 @@
+---
+title: "DNA methylation profiles"
+author: "ks"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+```
+
+# Create Spaghetti plots of DNAm over intervals
+
+```{r load-data}
+load("data/beta.by.region.rda")
+seqlevels(beta.by.region)
+```
+
+Check that I dropped X and Y chromosomes and compute position of CpG relative to TSS in a strand aware fashion.
+```{r data-table}
+Dt <- data.table(cpgpos = start(beta.by.region),
+                           data.frame(values(beta.by.region)))
+Dt$pos <- ifelse(values(beta.by.region)$tsstrand=="-",
+                  values(beta.by.region)$tss -
+                  start(beta.by.region),
+                 start(beta.by.region) - 
+                 values(beta.by.region)$tss)
+head(Dt)
+Dt$tsstrand <- factor(Dt$tsstrand)
+Dt$TSSinCGI <- factor(Dt$TSSinCGI)
+```
+
+Add gene expression deviance for stratifying DNA methylation data. 
+```{r merge-w-genedev}
+load("data/scdev.rda")
+
+scdev <- data.table(scdev)
+scdev <- scdev[!is.na(gene_ids)]
+mDt <- merge(x = Dt,
+             y = scdev,
+             by.x = c("tssgene_id"),
+             by.y = c("gene_ids"))
+mDt
+```
+
+Add interval average beta for stratifying DNA methylation data. 
+```{r merge-w-region-variables}
+# generated in characterize-regions.Rmd check if this is 
+load("data/filt_sum.tssregion.rda")
+#rmarkdown::render("characterize-regions.Rmd", quiet = TRUE)
+```
+
+```{r}
+mDt2 <- merge(x = mDt,
+             y = filt_sum.tssregion)
+mDt2
+```
+
+
+```{r}
+uniqgene <- unique(mDt2, by = "genesymbol")
+table(uniqgene$TSSinCGI,uniqgene$region_inCGI)
+```
+
+This shows me that genes covered by CGI usually also have TSS in CGI. 
+
+Let's handpick some genes to plot. 
+Require:  
+TSSinCGI==0, region_in_CGI==0, high expression deviance. 
+TSSinCGI==0, region_in_CGI==0, low expression deviance. 
+
+TSSinCGI==1, region_in_CGI==1, high expression deviance. 
+TSSinCGI==1, region_in_CGI==1, low expression deviance. 
+
+
+```{r uniqgene, cache=TRUE}
+sum.gene.gps <- uniqgene[, .(     gene_count = .N,
+                                     avg_dev = mean(colon_ldev),
+                                  q10_dev = quantile(colon_ldev,probs=0.1),
+                                      sd_dev = sd(colon_ldev)), 
+                    by = c("TSSinCGI","region_inCGI")]
+sum.gene.gps
+```
+
+
+```{r}
+gp00 <- uniqgene[TSSinCGI==0 & region_inCGI==0 & colon_ldev==0]
+gp00
+```
+
+```{r}
+table(gp00$cat_region_avg_beta)
+```
+
+```{r}
+gp00[ ,.(       cat_n = .N,
+            mean_nCpG = mean(region_n_CpG),
+          sd_nCpG   = sd(region_n_CpG)),
+                  by=c("cat_region_avg_beta")]
+```
+
+```{r}
+table(gp00$cat_region_avg_beta,gp00$region_n_CpG)
+```
+
+We can find 3 genes that have 18 CpGs, variable average beta, and no gene expression.
+```{r}
+gp00[ region_n_CpG==18]
+[c(15:17)]
+geneid <- gp00[ region_n_CpG==18][c(15:17)]$tssgene_id
+```
+
+
+
+## Look at DNA methylation profiles of inducible genes 
+Plot separately for genes with TSS in CGI and not in CGI
+
+```{r}
+g3 <- mDt[is.element(tssgene_id,geneid)]
+dim(g3)
+```
+
+```{r}
+ggplot(depE) +
+        #geom_point(aes(x=pos,y=avg_beta,color=genesymbol, group=genesymbol), alpha=0.3) +
+        geom_line(aes(x=pos,y=beta,color=genesymbol, group=genesymbol),
+                  show.legend = FALSE) +
+        facet_grid( ~ TSSinCGI) +
+        theme_minimal()
+```
+
+That's a mess of lines.   
+
+How many genes did I plot?
+
+```{r}
+depE[, uniqueN(genesymbol)]
+```
+
+How many had the TSS in CpG islands?  (80\%)
+```{r}
+first_occurrences <- unique(depE, by = "genesymbol")
+table(first_occurrences$TSSinCG)
+mean(first_occurrences$TSSinCG)
+```
+
+Let's plot a handful to see what's happening. Visual inspection shows me that the first 10 genes will actually give me 6 with TSS in CpG island, 4 not. Let's start there.
+```{r}
+depEmatch <- depE[is.element(genesymbol,first_occurrences$genesymbol[1:10])]
+```
+
+```{r}
+ggplot(depEmatch) +
+        geom_point(aes(x=pos,y=beta,color=genesymbol, group=genesymbol), alpha=0.3) +
+        geom_line(aes(x=pos,y=beta,color=genesymbol, group=genesymbol),
+                  show.legend = FALSE) +
+        facet_grid( ~ TSSinCGI)
+```
+
+Now let's plot the smoothed values.
+
+```{r}
+ggplot(depEmatch) +
+        geom_point(aes(x=pos,y=beta,color=genesymbol, group=genesymbol), alpha=0.3) +
+        geom_smooth(aes(x=pos,y=beta,color=genesymbol, group=genesymbol),
+                  show.legend = FALSE) +
+        facet_grid( ~ TSSinCGI)
+```
+
+## Fit smoothed lines for each TSS
+Then average fitted values and compare this to the earlier figure
+
+
+
+
+
+```{r sI}
+sessionInfo()
+```
+

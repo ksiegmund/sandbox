@@ -64,7 +64,18 @@ All widths are standardized to 501bps.
 Ask Yichen to compare .Rep1 and .Rep2. from matching samples
 and summarize number of overlapping peaks and number of peaks unique to each replicate. Do this for all 12 samples. Then create a new dataset for the 12 samples, saving the union of the overlapping intervals.
 
+He did this, and the result was that none of the intervals overlap.
+
+```{r}
+X006_S03_Rep1 <- peakset[values(peakset)$GroupReplicate=="scATAC_COAD_0914606C_2CA1_4287_B530_DB70EA93ED6C_X006_S03_B1_T1._.Rep1"]
+X006_S03_Rep2 <- peakset[values(peakset)$GroupReplicate=="scATAC_COAD_0914606C_2CA1_4287_B530_DB70EA93ED6C_X006_S03_B1_T1._.Rep2"]
+findOverlaps(X006_S03_Rep1,X006_S03_Rep2)
+```
+
+
 On this set, let's see how many intervals overlap across the 12 cancers. Rank the cancers based on numbers of peaks. Compare the 2 samples with the most peaks first to see if a large portion are common to both cancers.  Can we cluster these 12 samples based on peak regions? what might that look like?
+
+
 
 # COAD: Motif regions
 

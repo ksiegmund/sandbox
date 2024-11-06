@@ -25,8 +25,8 @@ Per Darryl:
 New Science paper (https://pubmed.ncbi.nlm.nih.gov/39236169/) has sc-ATAC seq data on chromatin accessibility. 
 
 The idea is that transcription site chromatin binding should have two patterns   
-1. if transcription site is active (binding of H3K27ac) in all single cells, the DNA region should have conserved methylation
-2. if the transcription site is active in only some of the single cells, the DNA region should have conserved methylation (ie variable expression and plasticity)  
+1. if transcription site is active (binding of H3K27ac) in all single cells, the DNA region should have conserved DNA methylation
+2. if the transcription site is active in only some of the single cells, the DNA region should have conserved DNA methylation (i.e., variable expression and plasticity)  
 3. if the transcription site is silent, then DNA region conservation should be lost relative to the above. 
 
 Let's grab data in: Cancer_Types_Peaks.tar.gz
@@ -34,7 +34,8 @@ Let's grab data in: Cancer_Types_Peaks.tar.gz
 library(data.table)
 
 # calls from Individual replicates
-fin <- fread(file.path(readdir,"Cancer_Type_Peaks/COAD_peakset.csv"))
+#fin <- fread(file.path(readdir,"Cancer_Type_Peaks/COAD_peakset.csv"))
+fin <- fread(file.path(readdir,"darryl/COAD_peakset.csv"))
 #fin
 ```
 
@@ -137,7 +138,7 @@ Are they on all chromosomes?
 table(seqnames(coad_motif_gr[values(coad_motif_gr)$group_name=="CTCF"]))
 ```
 
-Yes.
+Chromosome Y is not included.
 
 
 

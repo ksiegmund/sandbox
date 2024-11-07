@@ -15,9 +15,9 @@ library(data.table)
 library(ggplot2)
 ```
 
-## Pick DMR6
+## Pick DMR3
 
-Location chr16:34571556-34612795
+Location chr10:132784439-132789432
    
 1. plot the beta values for two normal (JN, IN) & tumor paired set (JA, JB) in this region.  
 2. find COAD-specific TF motif intervals from Science ATAC-seq paper that map to this region. 
@@ -30,9 +30,9 @@ filtered_data <- readRDS("~kims/github/sandbox/bsseq/data/filtered_data.rds")
 
 Subset the DNA methylation data to the interval of interest and summarize by sample.
 ```{r roi}
-roi <- GRanges(seqnames = "chr16",
-                  IRanges(start = 34571556,
-                           end = 34612795))
+roi <- GRanges(seqnames = "chr10",
+                  IRanges(start = 132784439,
+                           end = 132789432))
 ```
 
 ```{r subset-data}
@@ -67,7 +67,7 @@ ggplot(Dtf) +
         geom_point(aes(x=pos,y=beta,color = sample), alpha=0.3) +
         geom_smooth(aes(x=pos,y=beta,color = sample),span=0.5) +
         theme_minimal() +
-        labs(title = "chr16:34571556-34612795")
+        labs(title = "chr10:132784439-132789432")
 ```
 
 

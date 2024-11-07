@@ -1,0 +1,130 @@
+---
+title: "DNA methylation profiles"
+author: "ks"
+date: "2024-11-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+library(rtracklayer)
+```
+
+# Summarize data for matched samples
+
+First, read in the data for 3 matched samples and summarize.
+
+```{r data-dir}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+#readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
+```
+
+
+```{r read-beta-values-s1, echo=FALSE}
+fin1 <- fread(file.path(readdir,"wg_s1c.bed"))
+fin1$sample <- "JN"
+
+fin2 <- fread(file.path(readdir,"wg_s2c.bed"))
+fin2$sample <- "JA"
+
+fin3 <- fread(file.path(readdir,"wg_s3c.bed"))
+fin3$sample <- "JB"
+
+combined_fin <- rbindlist(list(fin1, fin2, fin3))
+setnames(fin1, c("chr","start","end","beta","depth","m","u","sample"))
+setnames(fin3, c("chr","start","end","beta","depth","m","u","sample"))
+rm(fin2)
+
+combined_fin[, .(n_CpG = .N, 
+       avg_beta = mean(V4), 
+       avg_depth = mean(V5),
+       max_depth = max(V5)), by = sample]
+```
+
+Note the number of unusually high read depths.   
+- Number of depths greater than 200 in sample JN: `r sum(fin1$depth>200)`
+
+I will remove the high read depths before studying the relationship between beta and depth. Run regressions for sample JN.
+
+```{r lmfit-beta}
+summary(lm(beta ~ depth,data=fin1, subset = depth < 200))$coef
+```
+
+They are negatively correlated.  But, beta is a function of depth. Hmmm. That alone makes them correlated. (recall: BMI is correlated with height) 
+
+There's a negative correlation between m and u. (NOTE: if I do not subset on read depth, my high read depths are very influential and I get a positive correlation.)
+```{r lmfit-m}
+summary(lm(m ~ u, data=fin1, subset = depth < 200))$coef
+```
+
+Yes. I might want to remove sites with 'lots' of reads.  
+
+```{r}
+combined_fin[ V5 < 200, .(n_CpG = .N, 
+       avg_beta = mean(V4), 
+       avg_depth = mean(V5)), by = sample]
+```
+
+This brings the average read depth down just a little because I'm dropping such a small number of CpG sites. 
+
+## Remove Blacklist regions
+What is the correct way to filter?  I just remembered there is a set of 'blacklist' regions for sequencing that we should omit. Here's how ChatGPT tells me to go about it.
+
+```{r make-GRobject}
+betavals <- GRanges(seqnames = combined_fin$V1,
+                   IRanges(start = combined_fin$V2,width=1))
+values(betavals) <- DataFrame(beta = combined_fin$V4,
+                            depth = combined_fin$V5,
+                                m = combined_fin$V6,
+                                u = combined_fin$V7,
+                            sample = combined_fin$sample)
+```
+
+
+```{r filter}
+# Load the blacklist file (for hg38, as an example)
+# starting here https://github.com/Boyle-Lab/Blacklist?tab=readme-ov-file takes me
+# https://www.encodeproject.org/annotations/ENCSR636HFF/
+# and download https://www.encodeproject.org/files/ENCFF356LFX/
+blacklist <- import("data/ENCFF356LFX.bed")
+
+filtered_data <- subsetByOverlaps(betavals, blacklist, invert = TRUE)
+```
+
+Now summarize
+```{r make-Dt}
+Dt <- as.data.table(values(filtered_data))
+Dt$pos <- start(filtered_data)
+
+sDt <- Dt[, .(n_CpG = .N, 
+       avg_beta = mean(beta), 
+       avg_depth = mean(depth),
+       max_depth = max(depth),
+       sumM     = sum(m),
+       sumdepth = sum(depth)), by = sample]
+sDt$poolbeta <- sDt$sumM/sDt$sumdepth
+sDt
+```
+
+That was a principled way to remove some high read depths (1.9$\%$ of measures), but it didn't get all of them.
+
+```{r lmfit-m-all}
+summary(lm(m ~ u, data=filtered_data, subset = sample=="JN"))$coef
+```
+
+Effect not as strong as when I filtered depth $<$ 200.
+
+```{r save}
+saveRDS(filtered_data,file="data/filtered_data.rds")
+```
+
+```{r sI}
+sessionInfo()
+```
+

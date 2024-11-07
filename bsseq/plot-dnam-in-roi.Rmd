@@ -1,0 +1,95 @@
+---
+title: "DNA methylation profiles"
+author: "ks"
+date: "2024-11-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE, echo=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+```
+
+## Pick DMR6
+
+Location chr16:34571556-34612795
+   
+1. plot the beta values for JN, JA, JB in this region.  
+2. find COAD-specific TF motif intervals from Science ATAC-seq paper that map to this region. 
+
+Load data for matched samples: JN, JA, JB.
+
+```{r load-data}
+filtered_data <- readRDS("~kims/github/sandbox/bsseq/data/filtered_data.rds")
+```
+
+Subset the DNA methylation data to the interval of interest and summarize by sample.
+```{r roi}
+roi <- GRanges(seqnames = "chr16",
+                  IRanges(start = 34571556,
+                           end = 34612795))
+```
+
+```{r subset-data}
+fO <- findOverlaps(filtered_data,roi)
+#fO
+samplej <- filtered_data[queryHits(fO)]
+```
+
+Check max depth in our ROI: `r max(values(samplej)$depth)`.  Cool! Removing blacklist regions removed high read depth sites.
+
+Summarize our data in this region by sample (filter on read depth > 4 ).
+```{r make-Dt}
+Dt <- as.data.table(values(samplej))
+Dt$pos <- start(samplej)
+
+sDt <- Dt[depth > 4 , .(n_CpG = .N, 
+       avg_beta = mean(beta), 
+       avg_depth = mean(depth),
+       max_depth = max(depth),
+       sumM     = sum(m),
+       sumdepth = sum(depth)), by = sample]
+sDt$poolbeta <- sDt$sumM/sDt$sumdepth
+sDt
+```
+
+
+## Figure
+
+```{r smoothed-curve}
+Dtf <- Dt[depth>4 ]
+ggplot(Dtf) +
+        geom_point(aes(x=pos,y=beta,color = sample), alpha=0.3) +
+        geom_smooth(aes(x=pos,y=beta,color = sample),span=0.5) +
+        theme_minimal() +
+        labs(title = "chr16:34571556-34612795")
+```
+
+
+
+## Check for TFBSs in region
+
+```{r read-cleaned-peakset}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/annotations")
+fin <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/COAD_cleaned_motifs.csv/COAD_cleaned_motifs.csv"))
+
+coad_motif_gr <- GRanges(seqnames = fin$seqnames,
+                   IRanges(start = fin$start,end = fin$end))
+values(coad_motif_gr) <- DataFrame(group_name = fin$group_name)
+#coad_motif_gr
+```
+
+```{r overlap-tfbs}
+fO <- findOverlaps(coad_motif_gr,roi)
+coad_motif_gr[queryHits(fO)]
+```
+
+These TF motif sites are inside the region of interest.
+
+
+

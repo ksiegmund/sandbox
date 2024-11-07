@@ -19,10 +19,10 @@ library(ggplot2)
 
 Location chr16:34571556-34612795
    
-1. plot the beta values for JN, JA, JB in this region.  
+1. plot the beta values for two normal (JN, IN) & tumor paired set (JA, JB) in this region.  
 2. find COAD-specific TF motif intervals from Science ATAC-seq paper that map to this region. 
 
-Load data for matched samples: JN, JA, JB.
+Load data for matched samples: JN, JA, JB & independent normal IN.
 
 ```{r load-data}
 filtered_data <- readRDS("~kims/github/sandbox/bsseq/data/filtered_data.rds")

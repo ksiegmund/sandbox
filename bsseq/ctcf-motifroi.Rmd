@@ -30,26 +30,61 @@ Let's learn about the motif sites they predict from their deep learning analysis
 
 We will download all CTCF binding sites from Cancer_cleaned_Cancer_peakset.tar.gz
 ```{r read-cleaned-peakset}
-fin <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/COAD_cleaned_motifs.csv/COAD_cleaned_motifs.csv"))
-#fin
+fin1 <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/COAD_cleaned_motifs.csv/COAD_cleaned_motifs.csv"))
+fin1 <- fin1[fin1$group_name=="CTCF",]
+fin1$'Cancer type' <- "COAD"
+
+fin2 <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/BRCA_cleaned_motifs.csv/BRCA_cleaned_motifs.csv"))
+fin2 <- fin2[fin2$group_name=="CTCF",]
+fin2$'Cancer type' <- "BRCA"
 ```
 
+
+```{r makepGRobjects}
+ctcf_coad_gr <- GRanges(seqnames = fin1$seqnames,
+                   IRanges(start = fin1$start,end = fin1$end))
+values(ctcf_coad_gr) <- DataFrame(group_name = fin1$group_name,
+                                  cancer_type = fin1$'Cancer type')
+ctcf_coad_gr
+
+ctcf_brca_gr <- GRanges(seqnames = fin2$seqnames,
+                   IRanges(start = fin2$start,end = fin2$end))
+values(ctcf_brca_gr) <- DataFrame(group_name = fin2$group_name,
+                                  cancer_type = fin2$'Cancer type')
+ctcf_brca_gr
+```
+
+## How many CTCF intervals in COAD and in BRCA overlap?
+```{r findO}
+fO <- findOverlaps(ctcf_coad_gr,ctcf_brca_gr)
+fO
+```
 
 ```{r}
-coad_motif_gr <- GRanges(seqnames = fin$seqnames,
-                   IRanges(start = fin$start,end = fin$end))
-values(coad_motif_gr) <- DataFrame(group_name = fin$group_name)
-coad_motif_gr
+length(unique(queryHits(fO)))
+values(ctcf_coad_gr)$cancer_type[unique(queryHits(fO))]=c("COAD+BRCA")
+table(values(ctcf_coad_gr)$cancer_type)
 ```
 
-## How many intervals for CTCF?
-```{r}
-ctcf_motif <- coad_motif_gr[values(coad_motif_gr)$group_name=="CTCF"]
-ctcf_motif
+Save BRCA only CTCF intervals, and add them to the GRobject.
+
+```{r brca-only-intervals}
+brca_only_ctcf <- subsetByOverlaps(ctcf_brca_gr,ctcf_coad_gr, invert=TRUE)
+length(brca_only_ctcf)
 ```
 
-`r length(ctcf_motif)` intervals of width 
-`r unique(width(ctcf_motif))` bps.
+```{r combine-gr}
+ctcf_motifs <- c(ctcf_coad_gr,brca_only_ctcf)
+table(values(ctcf_motifs)$cancer_type)
+```
+
+
+
+```{r save-data}
+save(ctcf_motifs,file="data/ctcf_motifs.rda")
+```
+
+
 
 # Get FIMO-predicted CTCF sites using PWM
 

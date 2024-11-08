@@ -30,19 +30,25 @@ readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
 fin1 <- fread(file.path(readdir,"wg_s1c.bed"))
 fin1$sample <- "JN"
 
-fin2 <- fread(file.path(readdir,"wg_s2c.bed"))
-fin2$sample <- "JA"
+#fin2 <- fread(file.path(readdir,"wg_s2c.bed"))
+#fin2$sample <- "JA"
 
-fin3 <- fread(file.path(readdir,"wg_s3c.bed"))
-fin3$sample <- "JB"
+#fin3 <- fread(file.path(readdir,"wg_s3c.bed"))
+#fin3$sample <- "JB"
 
 fin4 <- fread(file.path(readdir,"wg_s4c.bed"))
 fin4$sample <- "IN"
 
+fin5 <- fread(file.path(readdir,"wg_s5c.bed"))
+fin5$sample <- "IA"
 
-combined_fin <- rbindlist(list(fin1, fin2, fin3, fin4))
+fin6 <- fread(file.path(readdir,"wg_s6c.bed"))
+fin6$sample <- "IB"
+
+
+combined_fin <- rbindlist(list(fin1, fin4, fin5, fin6))
 setnames(combined_fin, c("chr","start","end","beta","depth","m","u","sample"))
-rm(fin1,fin2,fin3,fin4)
+rm(fin1,fin4,fin5,fin6)
 
 combined_fin[, .(n_CpG = .N, 
               avg_beta = mean(beta), 

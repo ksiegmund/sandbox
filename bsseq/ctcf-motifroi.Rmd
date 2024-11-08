@@ -1,0 +1,64 @@
+---
+title: "CTCF motif regions of interest from scATAC-seq"
+author: "ks"
+date: "2024-11-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE, warnings=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+```
+
+# TCGA sc-ATAC seq peak set
+
+```{r dirs}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/annotations")
+```
+
+Per Darryl:
+New Science paper (https://pubmed.ncbi.nlm.nih.gov/39236169/) has sc-ATAC seq data on chromatin accessibility. 
+
+Let's learn about the motif sites they predict from their deep learning analysis.
+
+# Cancer-specific Motif regions
+
+We will download all CTCF binding sites from Cancer_cleaned_Cancer_peakset.tar.gz
+```{r read-cleaned-peakset}
+fin <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/COAD_cleaned_motifs.csv/COAD_cleaned_motifs.csv"))
+#fin
+```
+
+
+```{r}
+coad_motif_gr <- GRanges(seqnames = fin$seqnames,
+                   IRanges(start = fin$start,end = fin$end))
+values(coad_motif_gr) <- DataFrame(group_name = fin$group_name)
+coad_motif_gr
+```
+
+## How many intervals for CTCF?
+```{r}
+ctcf_motif <- coad_motif_gr[values(coad_motif_gr)$group_name=="CTCF"]
+ctcf_motif
+```
+
+`r length(ctcf_motif)` intervals of width 
+`r unique(width(ctcf_motif))` bps.
+
+# Get FIMO-predicted CTCF sites using PWM
+
+https://meme-suite.org/meme/doc/fimo.html
+https://dozmorovlab.github.io/CTCF/
+
+Look for overlap between the cancer-specific CTCF sites and the FIMO-predicted set.
+Compare conservation in the cancer-specific CTCF binding sites vs control sites.
+possible controls: 
+
+
+

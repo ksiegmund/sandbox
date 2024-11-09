@@ -13,6 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(GenomicRanges)
 library(data.table)
 library(ggplot2)
+library(knitr)
+library(kableExtra)
 ```
 
 
@@ -20,101 +22,165 @@ library(ggplot2)
 
 ```{r read-ctcf-motifs}
 load("data/ctcf_motifs.rda")
-table(values(ctcf_motifs)$cancer_type)
 values(ctcf_motifs)$ctcf_idx <- 1:length(ctcf_motifs)
 ```
 
+We've downloaded a total of `r length(ctcf_motifs)` CTCF motif intervals from https://pubmed.ncbi.nlm.nih.gov/39236169/ (Science 2024 - scATACseq in TCGA)
+
+```{r kable, echo=FALSE}
+tb <- table(values(ctcf_motifs)$cancer_type)
+kable(tb, col.names = c("Cancer Type", "Count")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F)
+```
+
+
+Summarize average DNAm and PWD in these 15 bp intervals.   
+
+1. Average over entire interval.  Show Violin plot by # CpGs  
+2. Is the symmetry of CpG spike due to +/- strand?  Divide CpGs on left and right of interval, and summarize by interval side (left 7bps, mid 7 bps, right 7 bps). Does the mid 7 include the high probability CpG?
+
+
 ## Get Normal and Tumor I PWDs
 
-```{r load-data}
+Go back and create objects for each tumor separately.  Right now filtered_data includes samples JN, IN, IA, IB.
+
+### Sample: JN
+
+```{r load-JN}
 filtered_data <- readRDS("~kims/github/sandbox/bsseq/data/filtered_data.rds")
-values(filtered_data)$pos <- start(filtered_data)
-
-mp_n <- filtered_data[which(is.element(values(filtered_data)$sample,c("JN","IN")))]
+jn <- filtered_data[values(filtered_data)$sample=="JN"]
 ```
 
-when do I merge?
-
-```{r JN-IN}
-fO <- findOverlaps(ctcf_motifs, filtered_data[values(filtered_data)$sample=="JN"])
-fO
+These motif intervals are narrow, so I'm going to pool reads in the interval to estimate the pooled beta value. I will process each sample separately before merging samples to compute PWD.
+ 
+```{r jn-motif-interval}
+fO <- findOverlaps(ctcf_motifs, jn)
+#fO
 ```
 
-subset the DNAm data to the interval and then find the matching position from the paired sample. The first pair is matching JN and IN.
-```{r}
-jn <- filtered_data[subjectHits(fO)]
-f1 <- findOverlaps(jn,
-              filtered_data[values(filtered_data)$sample=="IN"])
-f1
-sample.in <- filtered_data[values(filtered_data)$sample=="IN"][subjectHits(f1)]
-sample.in
+`r length(fO)` CpG measures map to `r length(unique(queryHits(fO)))` CTCF intervals.
+
+```{r subset-and-merge-values}
+jn <- jn[subjectHits(fO)]
+values(jn)$ctcf_idx <- values(ctcf_motifs)$ctcf_idx[queryHits(fO)]
+values(jn)$pos <- start(jn)
+jn
 ```
-
-
-```{r}
-ctcf_jn <- ctcf_motifs[queryHits(fO)]
-values(ctcf_jn) <- DataFrame(values(ctcf_jn),
-                             values(filtered_data[subjectHits(fO)]))
-
-summary(values(ctcf_jn)$depth)
-```
-
 
 Summarize number of CpGs and the beta value by CTCF motif interval.
 ```{r summarize-jn-by-ctcfmotif}
-Dt <- as.data.table(values(ctcf_jn))
+Dt <- as.data.table(values(jn))
+Dt$filtbeta <- ifelse(Dt$depth>4,Dt$beta,NA)
+Dt$lowdepth <- ifelse(Dt$depth<5,1,0)
 
 Dt <- Dt[order(ctcf_idx)]
-sDt <- Dt[depth > 4 ,.( nCpG = .N,
-           avg_beta = mean(beta),
+sDt <- Dt[,.( nCpG = .N,
+           avg_filtbeta = mean(filtbeta,na.rm=T),
+           uncovered = sum(lowdepth),
            summ     = sum(m),
            sumdepth = sum(depth)), by = ctcf_idx]
 sDt$poolbeta <- sDt$summ/sDt$sumdepth
-nrow(sDt)
-table(sDt$nCpG)
-```
-Now overlap JN & IN, before merging the data with the ctcf motif intervals.
-```{r}
-jn <- filtered_data[values(filtered_data)$sample=="JN"]
-jn
 
+#Add annotation of cancer_type for each interval: COAD,COAD+BRCA,BRCA
+idx <- which(is.element(values(ctcf_motifs)$ctcf_idx,sDt$ctcf_idx))
+sDt$cancer_type <- values(ctcf_motifs)$cancer_type[idx]
 ```
 
+#### DNAm by CTCF region/nCpGs
 
+N = `r nrow(sDt)` intervals (`r round(nrow(sDt)/length(ctcf_motifs)*100,1)`$\%$) have DNA methylation measurements. Of these, `r round(mean(sDt$sumdepth>4)*100,1)`$\%$ have 5 or more reads.  Let's count the number of intervals containing 1 - 6 CpGs.
 
-
-
-
-## Stratify by interval averaged DNAm level
-
-How many TSSs are in or not in CpG islands, grouped by average beta value of interval?
-```{r Dt-counts}
-mDt <- mDt[order(TSSinCGI,cat_region_avg_beta)]
-mDt[, .(unique_tss_count = uniqueN(tssgene_id)), 
-              by = c("TSSinCGI","cat_region_avg_beta")]
+```{r kable-cpgcount, echo=FALSE}
+# didn't subtract number uncovered
+tb <- cbind(1:6,table(sDt$nCpG[sDt$sumdepth>4],sDt$cancer_type[sDt$sumdepth>4]))
+kable(tb, col.names = c("Number of CpGs", "BRCA","COAD","COAD+BRCA")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F)
 ```
 
-```{r avgbeta}
-mDt <- mDt[order(TSSinCGI,cat_region_avg_beta,pos)]
-avgpwd <- mDt[, .(avg_pwd = mean(pwd)), 
-                  by = c("TSSinCGI","cat_region_avg_beta","pos")]
-avgpwd <- avgpwd[order(TSSinCGI,cat_region_avg_beta,pos)]
+Does average DNA methylation in the CTCF motif interval vary depending on which cancer type had the predicted accessible TFBS?
+
+```{r smoothed-curve}
+ggplot(sDt[sumdepth>4], aes(x=cancer_type, y = poolbeta, fill = cancer_type)) +
+        geom_violin() +
+  # violin plot with mean points
+        stat_summary(fun=mean, geom="point", shape=23, size=2) +
+# violin plot with median points
+        stat_summary(fun=median, geom="point", size=2, color="red") +
+        facet_wrap( ~ factor(nCpG))
 ```
 
-```{r}
-ggplot(avgpwd) +
-        #geom_point(aes(x=pos,y=avg_pwd,color=cat_region_avg_beta), alpha=0.3) +
-        geom_smooth(aes(x=pos,y=avg_pwd,color=cat_region_avg_beta)) +
-        facet_grid( ~ TSSinCGI)
+Colored diamonds are means. Red points are medians.  
+
+```{r lm-jn}
+sDt$shiftnCpG <- sDt$nCpG - 1
+summary(lm(poolbeta ~ cancer_type + shiftnCpG, data=sDt, subset=sumdepth > 4))
+```
+
+Let's get the second normal tissue sample and summarize PWD for these locations.
+I might include different CpGs by doing this.
+
+### Sample: IN
+
+```{r load-IN}
+sampleIN <- filtered_data[values(filtered_data)$sample=="IN"]
+fO <- findOverlaps(ctcf_motifs, sampleIN)
+sampleIN <- sampleIN[subjectHits(fO)]
+values(sampleIN)$ctcf_idx <- values(ctcf_motifs)$ctcf_idx[queryHits(fO)]
+values(sampleIN)$pos <- start(sampleIN)
+```
+
+`r length(fO)` CpG measures map to `r length(unique(queryHits(fO)))` CTCF intervals.
+
+Summarize number of CpGs and the beta value by CTCF motif interval.
+```{r summarize-in-by-ctcfmotif}
+Dti <- as.data.table(values(sampleIN))
+Dti$filtbeta <- ifelse(Dti$depth>4,Dti$beta,NA)
+Dti$lowdepth <- ifelse(Dti$depth<5,1,0)
+
+Dti <- Dti[order(ctcf_idx)]
+sDti <- Dti[,.( nCpG = .N,
+           avg_filtbeta = mean(filtbeta,na.rm=T),
+           uncovered = sum(lowdepth),
+           summ     = sum(m),
+           sumdepth = sum(depth)), by = ctcf_idx]
+sDti$poolbeta <- sDti$summ/sDti$sumdepth
+
+#Add annotation of cancer_type for each interval: COAD,COAD+BRCA,BRCA
+idx <- which(is.element(values(ctcf_motifs)$ctcf_idx,sDti$ctcf_idx))
+sDti$cancer_type <- values(ctcf_motifs)$cancer_type[idx]
 ```
 
 
+#### DNAm by CTCF region/nCpGs
 
+N = `r nrow(sDti)` intervals (`r round(nrow(sDti)/length(ctcf_motifs)*100,1)`$\%$) have DNA methylation measurements. Of these, `r round(mean(sDti$sumdepth>4)*100,1)`$\%$ have 5 or more reads.  Let's count the number of intervals with 5+ reads by the number of CpGs in the interval.
 
-## Stratify by number of CpGs in interval
+```{r kable-cpgcounti, echo=FALSE}
+tb <- cbind(1:6,table(sDti$nCpG[sDti$sumdepth>4],sDti$cancer_type[sDti$sumdepth>4]))
+kable(tb, col.names = c("Number of CpGs", "BRCA","COAD","COAD+BRCA")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F)
+```
 
+Does average DNA methylation in the CTCF motif interval vary depending on which cancer type had the predicted accessible TFBS?
 
+```{r smoothed-curve-in}
+ggplot(sDti[sumdepth>4], aes(x=cancer_type, y = poolbeta, fill = cancer_type)) +
+        geom_violin() +
+  # violin plot with mean points
+        stat_summary(fun=mean, geom="point", shape=23, size=2) +
+# violin plot with median points
+        stat_summary(fun=median, geom="point", size=2, color="red") +
+        facet_wrap( ~ factor(nCpG))
+```
 
+Colored diamonds are means. Red points are medians.  
+
+```{r lm-in}
+sDti$shiftnCpG <- sDti$nCpG - 1
+summary(lm(poolbeta ~ cancer_type + shiftnCpG, data=sDti, subset=sumdepth > 4))
+```
+
+## Merge and plot PWDs
 
 ```{r sI}
 sessionInfo()

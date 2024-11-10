@@ -28,33 +28,40 @@ Let's learn about the motif sites they predict from their deep learning analysis
 
 # Cancer-specific Motif regions
 
-We will download all CTCF binding sites from Cancer_cleaned_Cancer_peakset.tar.gz
+We will download all CTCF binding sites from Cancer_cleaned_Cancer_peakset.tar.gz.  For CTCF, all intervals have a width of 15 bps.  Some of the COAD (BRCA) intervals overlap or are adjacent.  I will merge all intervals that are adjacent and overlapping.
 ```{r read-cleaned-peakset}
 fin1 <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/COAD_cleaned_motifs.csv/COAD_cleaned_motifs.csv"))
 fin1 <- fin1[fin1$group_name=="CTCF",]
-fin1$'Cancer type' <- "COAD"
 
 fin2 <- fread(file.path(readdir,"Cancer_cleaned_Cancer_peakset/BRCA_cleaned_motifs.csv/BRCA_cleaned_motifs.csv"))
 fin2 <- fin2[fin2$group_name=="CTCF",]
-fin2$'Cancer type' <- "BRCA"
 ```
 
 
-```{r makepGRobjects}
+```{r makeGRobjects}
 ctcf_coad_gr <- GRanges(seqnames = fin1$seqnames,
                    IRanges(start = fin1$start,end = fin1$end))
-values(ctcf_coad_gr) <- DataFrame(group_name = fin1$group_name,
-                                  cancer_type = fin1$'Cancer type')
+ctcf_coad_gr <- reduce(ctcf_coad_gr)
+values(ctcf_coad_gr) <- DataFrame(group_name = "CTCF",
+                                  cancer_type = "COAD")
 ctcf_coad_gr
 
 ctcf_brca_gr <- GRanges(seqnames = fin2$seqnames,
                    IRanges(start = fin2$start,end = fin2$end))
-values(ctcf_brca_gr) <- DataFrame(group_name = fin2$group_name,
-                                  cancer_type = fin2$'Cancer type')
+ctcf_brca_gr <- reduce(ctcf_brca_gr)
+values(ctcf_brca_gr) <- DataFrame(group_name = "CTCF",
+                                  cancer_type = "BRCA")
+rm(fin1,fin2)
 ctcf_brca_gr
 ```
 
-## How many CTCF intervals in COAD and in BRCA overlap?
+
+What fraction have widths $>$ 15?  `r round(mean(width(ctcf_coad_gr)>15)*100,1)`$\%$ of COAD intervals have widths $>$ 15.
+
+ `r round(mean(width(ctcf_brca_gr)>15)*100,1)`$\%$ of BRCA intervals have widths $>$ 15.
+
+
+## How many CTCF intervals in COAD overlap intervals in BRCA?
 ```{r findO}
 fO <- findOverlaps(ctcf_coad_gr,ctcf_brca_gr)
 fO

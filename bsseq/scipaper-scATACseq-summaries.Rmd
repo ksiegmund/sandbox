@@ -1,0 +1,91 @@
+---
+title: "Science Paper Supplement Tables"
+author: "ks"
+date: "2024-10-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE, warnings=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+library(readxl)
+```
+
+## Numbers of COAD samples and sc-ATAC cells
+
+```{r dirs}
+readdir <- c("~kims/Google Drive/My Drive/References/crc/science.adk9217_tables_s1_to_s24")
+```
+
+Per Darryl:
+New Science paper (https://pubmed.ncbi.nlm.nih.gov/39236169/) has sc-ATAC seq data on chromatin accessibility. 
+
+The idea is that transcription site chromatin binding should have two patterns   
+1. if transcription site is active (binding of H3K27ac) in all single cells, the DNA region should have conserved methylation
+2. if the transcription site is active in only some of the single cells, the DNA region should have conserved methylation (ie variable expression and plasticity)  
+3. if the transcription site is silent, then DNA region conservation should be lost relative to the above. 
+
+I couldn't make heads or tails of the peak data, so I'm going to return to the Supplemental files. 
+
+### Table S1: Metadata for all identified cancer tumour cells
+
+This gives me the barcodes for the cells determined to be cancer tumor cells.
+```{r read-files}
+# calls from Individual replicates
+fin <- read_excel(file.path(readdir,"adk9217_Suppl. Excel_seq1_v2.xlsx"),
+                  sheet = "TableS1") 
+fin <- as.data.table(fin)
+ncell.tables1 <- nrow(fin)
+#fin
+```
+
+
+Table S1 lists `r ncell.tables1` nuclei from `r length(unique(fin$Sample))` samples.  The papers lists 227,063 cells and 74 tumor samples. The difference will be the cells in Table S2. 
+
+Let's save the cells from COAD and summarize those.
+```{r subset-tables1-coad}
+Dt <- fin[`Cancer type` == c("COAD")]
+Dt$Sample <- substr(Dt$Sample,1,20)
+```
+We have `r nrow(Dt)` nuclei from `r length(unique(Dt$Sample))` samples.
+
+
+Count the nuclei by sample.
+```{r tally}
+Dt[, .(number_of_cells = .N),   by = c("Sample","Cancer type")]
+```
+
+### Table S2: Metadata for all cancer-immune cells
+
+```{r read-tables2}
+# calls from Individual replicates
+fin <- read_excel(file.path(readdir,"adk9217_Suppl. Excel_seq1_v2.xlsx"),
+                  sheet = "TableS2") 
+fin <- as.data.table(fin)
+ncell.tables2 <- nrow(fin)
+#fin
+```
+
+Table S2 lists `r ncell.tables2` nuclei from `r length(unique(fin$Sample))` samples.     
+
+This is a smaller number of cells.  If I add the rows from Table S1 and Table S2, I get the total number of cells reported in the paper: `r ncell.tables1 + ncell.tables2`
+
+Let's summarize this table for COAD.
+```{r subset-tables2-coad}
+fin <- fin[`cleaned_sample` == c("COAD")]
+fin$Sample <- substr(fin$Sample,1,20)
+fin <- fin[order(Sample, celltype)]
+```
+Table S2 lists `r nrow(fin)` nuclei from `r length(unique(fin$Sample))` COAD samples. 
+
+
+```{r tally-tableS2}
+fin[, .(number_of_cells = .N),   by = c("Sample","celltype")]
+```
+
+

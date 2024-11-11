@@ -14,11 +14,12 @@ library(GenomicRanges)
 library(data.table)
 library(ggplot2)
 library(rtracklayer)
+samplename <- c("JN","IN")
 ```
 
-# Summarize data for matched samples
+# Summarize data for matched samples: `r samplename`
 
-First, read in the data for 3 matched samples and summarize.
+First, read in the data for samples.
 
 ```{r data-dir}
 readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
@@ -28,27 +29,14 @@ readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
 
 ```{r read-beta-values, echo=FALSE}
 fin1 <- fread(file.path(readdir,"wg_s1c.bed"))
-fin1$sample <- "JN"
+fin1$sample <- samplename[1]
 
-#fin2 <- fread(file.path(readdir,"wg_s2c.bed"))
-#fin2$sample <- "JA"
+fin2 <- fread(file.path(readdir,"wg_s4c.bed"))
+fin2$sample <- samplename[2]
 
-#fin3 <- fread(file.path(readdir,"wg_s3c.bed"))
-#fin3$sample <- "JB"
-
-fin4 <- fread(file.path(readdir,"wg_s4c.bed"))
-fin4$sample <- "IN"
-
-fin5 <- fread(file.path(readdir,"wg_s5c.bed"))
-fin5$sample <- "IA"
-
-fin6 <- fread(file.path(readdir,"wg_s6c.bed"))
-fin6$sample <- "IB"
-
-
-combined_fin <- rbindlist(list(fin1, fin4, fin5, fin6))
+combined_fin <- rbindlist(list(fin1, fin2))
 setnames(combined_fin, c("chr","start","end","beta","depth","m","u","sample"))
-rm(fin1,fin4,fin5,fin6)
+rm(fin1,fin2)
 
 combined_fin[, .(n_CpG = .N, 
               avg_beta = mean(beta), 
@@ -114,38 +102,34 @@ That was a principled way to remove some high read depths, but it didn't get the
 
 
 ```{r save}
-saveRDS(filtered_data,file="data/filtered_data.rds")
+fn <- paste0("data/filtered_samples",samplename[1],samplename[2],".rds")
+saveRDS(filtered_data,file=fn)
 ```
 
 ## Characterize the data
 
-Do this for sample JN. The tumor data appear even more variable with respect to sequencing depth across the genome.
-```{r lmfit-beta}
-summary(lm(beta ~ depth,data=combined_fin, subset = sample == "JN"))$coef
-```
-
-I will remove the high read depths before studying the relationship between beta and depth. Run regressions for sample JN.
+Do this for sample `r samplename[1]`. The tumor data appear even more variable with respect to sequencing depth across the genome.  I will remove the high read depths before studying the relationship between beta and depth. Run regressions for sample `r samplename[1]`.
 
 ```{r lmfit-beta-filtered}
-summary(lm(beta ~ depth,data=filtered_data, subset = sample == "JN"))$coef
+summary(lm(beta ~ depth,data=filtered_data, subset = sample == samplename[1]))$coef
 ```
 
 They are negatively correlated.  But, beta is a function of depth. Hmmm. That alone makes them correlated. (recall: BMI is correlated with height) 
 
-There's a negative correlation between m and u. (NOTE: if I do not remember to use the exclude list, my high read depths are very influential and I get a positive correlation.)
+There's a negative correlation between m and u. (NOTE: if I do not remember to use the exclude list, my high read depths are very influential and I get a positive correlation!)
 
 ```{r lmfit-m}
-summary(lm(m ~ u, data=combined_fin, subset = sample=="JN"))$coef
+summary(lm(m ~ u, data=combined_fin, subset = sample==samplename[1]))$coef
 ```
 
 ```{r lmfit-m-filtered}
-summary(lm(m ~ u, data=filtered_data, subset = sample=="JN"))$coef
+summary(lm(m ~ u, data=filtered_data, subset = sample==samplename[1]))$coef
 ```
 
 ```{r lmfit-m-depth-cutoff}
-summary(lm(m ~ u, data=combined_fin, subset = sample =="JN" & depth < 200))$coef
+summary(lm(m ~ u, data=filtered_data, subset = sample ==samplename[1] & depth < 200))$coef
 ```
-Even stronger effect when filtering depth $<$ 200.  But this relies on an arbitrary cutoff so let's not exclude them from the saved data set.
+Even stronger effect when filtering depth $<$ 200.  But this relies on an arbitrary cutoff so we do not exclude them from the saved data set.
 
 
 ```{r sI}

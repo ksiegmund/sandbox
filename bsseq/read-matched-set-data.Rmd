@@ -14,7 +14,7 @@ library(GenomicRanges)
 library(data.table)
 library(ggplot2)
 library(rtracklayer)
-samplename <- c("JN","IN")
+samplename <- c("DA","DB")
 ```
 
 # Summarize data for matched samples: `r samplename`
@@ -22,21 +22,32 @@ samplename <- c("JN","IN")
 First, read in the data for samples.
 
 ```{r data-dir}
-readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+# this is for the normal samples
+#readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+#fin1 <- fread(file.path(readdir,"wg_s1c.bed"))
+#fin1$sample <- samplename[1]
+
+#fin2 <- fread(file.path(readdir,"wg_s4c.bed"))
+#fin2$sample <- samplename[2]
 #readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
+
+# This is for paired tumor samples
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
+fin1 <- fread(file.path(readdir,paste0(samplename[1],".bed")))
+fin1$sample <- samplename[1]
+
+fin2 <- fread(file.path(readdir,paste0(samplename[2],".bed")))
+fin2$sample <- samplename[2]
 ```
 
 
 ```{r read-beta-values, echo=FALSE}
-fin1 <- fread(file.path(readdir,"wg_s1c.bed"))
-fin1$sample <- samplename[1]
-
-fin2 <- fread(file.path(readdir,"wg_s4c.bed"))
-fin2$sample <- samplename[2]
-
 combined_fin <- rbindlist(list(fin1, fin2))
 setnames(combined_fin, c("chr","start","end","beta","depth","m","u","sample"))
 rm(fin1,fin2)
+
+desired_chromosomes <- paste0("chr",c(as.character(1:22),"X","Y"))
+combined_fin <- combined_fin[chr %in% desired_chromosomes]
 
 combined_fin[, .(n_CpG = .N, 
               avg_beta = mean(beta), 
@@ -88,8 +99,8 @@ Dt[, .(n_CpG = .N,
 ```
 How does this compare to the excluded data?
 ```{r sum-excluded-data}
-Dt <- as.data.table(values(excluded_data))
-Dt[, .(n_CpG = .N, 
+Dt2 <- as.data.table(values(excluded_data))
+Dt2[, .(n_CpG = .N, 
            avg_beta = mean(beta), 
         median_beta = median(beta),
           avg_depth = mean(depth),
@@ -110,26 +121,85 @@ saveRDS(filtered_data,file=fn)
 
 Do this for sample `r samplename[1]`. The tumor data appear even more variable with respect to sequencing depth across the genome.  I will remove the high read depths before studying the relationship between beta and depth. Run regressions for sample `r samplename[1]`.
 
+### Sample `r samplename[1]`
+
+```{r readdepth, echo=FALSE}
+Dt$logdepth <- log(Dt$depth+1)
+ggplot(Dt[which(sample %in% samplename[1] & seqnames(filtered_data)=="chr22")], 
+          aes(x=logdepth, y = beta) ) +
+          geom_point() +
+          geom_smooth(span=0.5) +
+          geom_smooth(method="lm",color="red") +
+          labs(title=paste0(samplename[1],": chr22"))
+```
+
 ```{r lmfit-beta-filtered}
-summary(lm(beta ~ depth,data=filtered_data, subset = sample == samplename[1]))$coef
+summary(lm(beta ~ depth,data=Dt, 
+                        subset = sample == samplename[1]))$coef
 ```
 
-They are negatively correlated.  But, beta is a function of depth. Hmmm. That alone makes them correlated. (recall: BMI is correlated with height) 
-
-There's a negative correlation between m and u. (NOTE: if I do not remember to use the exclude list, my high read depths are very influential and I get a positive correlation!)
-
-```{r lmfit-m}
-summary(lm(m ~ u, data=combined_fin, subset = sample==samplename[1]))$coef
+```{r lmfit-beta-filtered-depth}
+summary(lm(beta ~ depth,data=Dt, 
+           subset = sample == samplename[1] & depth < 400 ))$coef
 ```
+```{r muplot, echo=FALSE}
+ggplot(Dt[which(sample %in% samplename[1] & seqnames(filtered_data)=="chr22")], 
+          aes(x=u, y = m) ) +
+          geom_point() +
+          geom_smooth(span=0.5) +
+          geom_smooth(method="lm",color="red") +
+          labs(title=paste0(samplename[1],": chr22"))
+```
+
 
 ```{r lmfit-m-filtered}
-summary(lm(m ~ u, data=filtered_data, subset = sample==samplename[1]))$coef
+summary(lm(m ~ u, data=Dt, subset = sample==samplename[1]))$coef
 ```
 
 ```{r lmfit-m-depth-cutoff}
-summary(lm(m ~ u, data=filtered_data, subset = sample ==samplename[1] & depth < 200))$coef
+summary(lm(m ~ u, data=Dt, subset = sample ==samplename[1] & depth < 400))$coef
 ```
-Even stronger effect when filtering depth $<$ 200.  But this relies on an arbitrary cutoff so we do not exclude them from the saved data set.
+
+### Sample `r samplename[2]`
+
+```{r readdepth-s2, echo=FALSE}
+Dt$logdepth <- log(Dt$depth+1)
+ggplot(Dt[which(sample %in% samplename[2] & seqnames(filtered_data)=="chr22")], 
+          aes(x=logdepth, y = beta) ) +
+          geom_point() +
+          geom_smooth(span=0.5) +
+          geom_smooth(method="lm",color="red") +
+          labs(title=paste0(samplename[2],": chr22"))
+```
+
+```{r lmfit-beta-filtered-s2}
+summary(lm(beta ~ depth,data=Dt, 
+                        subset = sample == samplename[2]))$coef
+```
+
+```{r lmfit-beta-filtered-s2-depth}
+summary(lm(beta ~ depth,data=Dt, 
+                        subset = sample == samplename[2] & depth < 400))$coef
+```
+
+```{r muplot-s2, echo=FALSE}
+ggplot(Dt[which(sample %in% samplename[2] & seqnames(filtered_data)=="chr22")], 
+          aes(x=u, y = m) ) +
+          geom_point() +
+          geom_smooth(span=0.5) +
+          geom_smooth(method="lm",color="red") +
+          labs(title=paste0(samplename[2],": chr22"))
+```
+
+
+```{r lmfit-m-filtered-s2}
+summary(lm(m ~ u, data=Dt, subset = sample==samplename[2]))$coef
+```
+
+```{r lmfit-m-depth-cutoff-s2}
+summary(lm(m ~ u, data=Dt, subset = sample ==samplename[2] & depth < 400))$coef
+```
+Even stronger effect when filtering depth $<$ 400.  But this relies on an arbitrary cutoff so we do not exclude them from the saved data set.
 
 
 ```{r sI}

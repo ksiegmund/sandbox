@@ -15,7 +15,7 @@ library(data.table)
 library(ggplot2)
 library(knitr)
 library(kableExtra)
-samplename <- c("JN","IN")
+samplename <- c("DA","DB")
 ```
 
 # PWD for samples: `r samplename`

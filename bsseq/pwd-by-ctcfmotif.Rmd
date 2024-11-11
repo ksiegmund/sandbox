@@ -15,8 +15,10 @@ library(data.table)
 library(ggplot2)
 library(knitr)
 library(kableExtra)
+samplename <- c("JN","IN")
 ```
 
+# PWD for samples: `r samplename`
 
 ## Get CTCF intervals
 
@@ -47,34 +49,35 @@ kable(widthdistn, col.names = c("BRCA","COAD","COAD+BRCA"),
 Summarize average DNAm and PWD in these intervals.   
 Average DNAm over entire interval.  Show Violin plot by # CpGs  
 
-## Get Normal PWDs
+##  Compute pooled DNAm level, by interval
 
-### Sample: IA
+### Sample: `r samplename[1]`
 
-```{r load-JN}
-filtered_data <- readRDS("~kims/github/sandbox/bsseq/data/filtered_data.rds")
-jn <- filtered_data[values(filtered_data)$sample=="IA"]
+```{r load-sample1}
+fn <- paste0("data/filtered_samples",samplename[1],samplename[2],".rds")
+filtered_data <- readRDS(fn)
+s1 <- filtered_data[values(filtered_data)$sample==samplename[1]]
 ```
 
 These motif intervals are narrow, so I'm going to pool reads in the interval to estimate the pooled beta value. I will process each sample separately before merging samples to compute PWD.
  
-```{r jn-motif-interval}
-fO <- findOverlaps(ctcf_motifs, jn)
+```{r s1-motif-interval}
+fO <- findOverlaps(ctcf_motifs, s1)
 #fO
 ```
 
 `r length(fO)` CpG measures map to `r length(unique(queryHits(fO)))` CTCF intervals.
 
 ```{r subset-and-merge-values}
-jn <- jn[subjectHits(fO)]
-values(jn)$ctcf_idx <- values(ctcf_motifs)$ctcf_idx[queryHits(fO)]
-values(jn)$pos <- start(jn)
-jn
+s1 <- s1[subjectHits(fO)]
+values(s1)$ctcf_idx <- values(ctcf_motifs)$ctcf_idx[queryHits(fO)]
+values(s1)$pos <- start(s1)
+s1
 ```
 
 Summarize number of CpGs and the beta value by CTCF motif interval.
-```{r summarize-jn-by-ctcfmotif}
-Dt <- as.data.table(values(jn))
+```{r summarize-s1-by-ctcfmotif}
+Dt <- as.data.table(values(s1))
 Dt$filtbeta <- ifelse(Dt$depth>4,Dt$beta,NA)
 Dt$lowdepth <- ifelse(Dt$depth<5,1,0)
 
@@ -93,7 +96,7 @@ sDt$cancer_type <- values(ctcf_motifs)$cancer_type[idx]
 
 #### DNAm by CTCF region/nCpGs
 
-N = `r nrow(sDt)` intervals (`r round(nrow(sDt)/length(ctcf_motifs)*100,1)`$\%$) have DNA methylation measurements. Of these, `r round(mean(sDt$sumdepth>4)*100,1)`$\%$ have 5 or more reads.  Let's count the number of intervals containing 1 - 6 CpGs.
+N = `r nrow(sDt)` intervals (`r round(nrow(sDt)/length(ctcf_motifs)*100,1)`$\%$) have DNA methylation measurements. Of these, `r round(mean(sDt$sumdepth>4)*100,1)`$\%$ have 5 or more reads.  Let's count the number of intervals by the number of covered (read depth $>$ 4) CpGs in the interval.
 
 ```{r kable-cpgcount, echo=FALSE}
 # didn't subtract number uncovered
@@ -113,12 +116,13 @@ ggplot(sDt[sumdepth>4], aes(x=cancer_type, y = poolbeta, fill = cancer_type)) +
         stat_summary(fun=mean, geom="point", shape=23, size=2) +
 # violin plot with median points
         stat_summary(fun=median, geom="point", size=2, color="red") +
+        labs(title = paste("Sample:",samplename[1])) +
         facet_wrap( ~ factor(numCpG))
 ```
 
 Colored diamonds are means. Red points are medians.  
 
-```{r lm-jn}
+```{r lm-s1}
 sDt$shiftnumCpG <- as.numeric(sDt$numCpG) - 1
 summary(lm(poolbeta ~ cancer_type + shiftnumCpG, data=sDt, subset=sumdepth > 4))
 ```
@@ -126,22 +130,22 @@ summary(lm(poolbeta ~ cancer_type + shiftnumCpG, data=sDt, subset=sumdepth > 4))
 Let's get the second normal tissue sample and summarize PWD for these locations.
 I might include different CpGs by doing this.
 
-### Sample: IB
+### Sample: `r samplename[2]`
 
-```{r load-IN}
-sampleIN <- filtered_data[values(filtered_data)$sample=="IB"]
-fO <- findOverlaps(ctcf_motifs, sampleIN)
-sampleIN <- sampleIN[subjectHits(fO)]
-values(sampleIN)$ctcf_idx <- values(ctcf_motifs)$ctcf_idx[queryHits(fO)]
-values(sampleIN)$pos <- start(sampleIN)
-sampleIN <- sampleIN[order(sampleIN)]
+```{r load-s2}
+s2 <- filtered_data[values(filtered_data)$sample==samplename[2]]
+fO <- findOverlaps(ctcf_motifs, s2)
+s2 <- s2[subjectHits(fO)]
+values(s2)$ctcf_idx <- values(ctcf_motifs)$ctcf_idx[queryHits(fO)]
+values(s2)$pos <- start(s2)
+s2 <- s2[order(s2)]
 ```
 
 `r length(fO)` CpG measures map to `r length(unique(queryHits(fO)))` CTCF intervals.
 
 Summarize number of CpGs and the beta value by CTCF motif interval.
-```{r summarize-in-by-ctcfmotif}
-Dti <- as.data.table(values(sampleIN))
+```{r summarize-s2-by-ctcfmotif}
+Dti <- as.data.table(values(s2))
 Dti$filtbeta <- ifelse(Dti$depth>4,Dti$beta,NA)
 Dti$lowdepth <- ifelse(Dti$depth<5,1,0)
 
@@ -180,6 +184,7 @@ ggplot(sDti[sumdepth>4], aes(x=cancer_type, y = poolbeta, fill = cancer_type)) +
         stat_summary(fun=mean, geom="point", shape=23, size=2) +
 # violin plot with median points
         stat_summary(fun=median, geom="point", size=2, color="red") +
+        labs(title = paste("Sample:",samplename[2])) +
         facet_wrap( ~ factor(numCpG))
 ```
 
@@ -190,7 +195,7 @@ sDti$shiftnumCpG <- as.numeric(sDti$numCpG) - 1
 summary(lm(poolbeta ~ cancer_type + shiftnumCpG, data=sDti, subset=sumdepth > 4))
 ```
 
-## Merge and plot PWDs
+## Compute PWDs
 
 Merge the interval summary stats and compute PWD.
 
@@ -204,7 +209,7 @@ colnames(sDti) <- cn
 ```
 
 Compute pairwise differences
-```{r sample-pair, echo=FALSE}
+```{r sample-pair}
 pairsDt <- merge(sDt,
                  sDti)
 dim(pairsDt)
@@ -219,6 +224,7 @@ ggplot(pairsDt[sumdepth>4 & s2.sumdepth>4], aes(x=cancer_type, y = pwd, fill = c
 # violin plot with median points
         stat_summary(fun=median, geom="point", size=2, color="red") +
         ylim(0,.4) + 
+        labs(title = paste("PWD:",samplename[1],"-",samplename[2])) +
         facet_wrap( ~ factor(numCpG))
 ```
 

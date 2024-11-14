@@ -123,6 +123,12 @@ Do this for sample `r samplename[1]`. The tumor data appear even more variable w
 
 ### Sample `r samplename[1]`
 
+
+```{r density-beta}
+plot(density( Dt$beta[which(Dt$sample %in% samplename[1])]),
+     main=samplename[1],xlab="Beta value")
+```
+
 ```{r readdepth, echo=FALSE}
 Dt$logdepth <- log(Dt$depth+1)
 ggplot(Dt[which(sample %in% samplename[1] & seqnames(filtered_data)=="chr22")], 
@@ -132,6 +138,7 @@ ggplot(Dt[which(sample %in% samplename[1] & seqnames(filtered_data)=="chr22")],
           geom_smooth(method="lm",color="red") +
           labs(title=paste0(samplename[1],": chr22"))
 ```
+
 
 ```{r lmfit-beta-filtered}
 summary(lm(beta ~ depth,data=Dt, 
@@ -161,6 +168,11 @@ summary(lm(m ~ u, data=Dt, subset = sample ==samplename[1] & depth < 400))$coef
 ```
 
 ### Sample `r samplename[2]`
+
+```{r density-beta-s2}
+plot(density( Dt$beta[which(Dt$sample %in% samplename[2])]),
+     main=samplename[2],xlab="Beta value")
+```
 
 ```{r readdepth-s2, echo=FALSE}
 Dt$logdepth <- log(Dt$depth+1)

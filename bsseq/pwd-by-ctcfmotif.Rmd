@@ -233,6 +233,39 @@ ft <- pairsDt$sumdepth > 4 & pairsDt$s2.sumdepth > 4
 summary(lm(pwd ~ cancer_type + shiftnumCpG, data=pairsDt, subset=ft))
 ```
 
+## Compute UB 95% CI
+
+Compute Brown & Li's 95% CI. Use `Jeffreys' Bayes estimators for the pis derived using Jeffreys Beta(0.5,0.5) prior. Then it's just a Wald CI using these new pis (piprime, i=1,2).
+```{r sample-pair-ubdiff}
+p1prime <- (pairsDt$summ + 0.5)/(pairsDt$sumdepth + 1)
+p2prime <- (pairsDt$s2.summ + 0.5)/(pairsDt$s2.sumdepth + 1)
+varp1prime <- p1prime*(1-p1prime)/pairsDt$sumdepth
+varp2prime <- p2prime*(1-p2prime)/pairsDt$s2.sumdepth
+sddiff <- sqrt(varp1prime + varp2prime)
+pairsDt$ubdiff <- abs(p1prime - p2prime) + 1.96 * sddiff
+```
+
+
+```{r ubdiff}
+ggplot(pairsDt[sumdepth>4 & s2.sumdepth>4], aes(x=cancer_type, y = ubdiff, fill = cancer_type)) +
+        geom_violin() +
+  # violin plot with mean points
+        stat_summary(fun=mean, geom="point", shape=23, size=2) +
+# violin plot with median points
+        stat_summary(fun=median, geom="point", size=2, color="red") +
+        ylim(0,.4) + 
+        labs(title = paste("Upper Bound 95%CI for Difference:",samplename[1],"-",samplename[2])) +
+        facet_wrap( ~ factor(numCpG))
+```
+
+
+
+```{r lm-ubdiff}
+ft <- pairsDt$sumdepth > 4 & pairsDt$s2.sumdepth > 4
+summary(lm(ubdiff ~ cancer_type + shiftnumCpG, data=pairsDt, subset=ft))
+```
+
+
 ```{r sI}
 sessionInfo()
 ```

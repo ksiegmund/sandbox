@@ -14,7 +14,7 @@ library(GenomicRanges)
 library(data.table)
 library(ggplot2)
 library(rtracklayer)
-samplename <- c("DA","DB")
+samplename <- c("MA","MB")
 ```
 
 # Summarize data for matched samples: `r samplename`

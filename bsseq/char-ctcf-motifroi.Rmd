@@ -1,0 +1,121 @@
+---
+title: "CTCF motif regions of interest"
+author: "ks"
+date: "2024-11-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE, warnings=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+library(plyranges)
+```
+
+## CTCF binding sites
+
+We want to compare DNA methylation conservation in the colon cancer-specific CTCF binding sites vs control sites. Possible controls:   
+1. CTCF binding in BRCA but not COAD  
+2. FIMO-predicted CTCF, but not COAD
+
+Find Individual Motif Occurrences (FIMO) is a tool in the MEME Suite toolbox to search sequences for occurrences of known motifs (https://meme-suite.org/meme/doc/fimo.html). 
+The Dozmorov lab did this for CTCF and stored the results in Bioconductor annotation hub (https://dozmorovlab.github.io/CTCF/). The saved data sets are JASPAR2022 motifs in hg38. FIMO tool uses a pvalue < 1e-4. Analysis of ENCODE data showed this cutoff has a high false-positive rate. Let's see how the predicted intervals using this cutoff compares to scATAC-seq predicted intervals. We might use a more strict cutoff later.
+
+JASPAR2022 lists 3 motifs (position weight matrices, PWMs) for CTCF. Two sets of predicted sites are available.   
+1. The combination of results for all 3 motifs.   
+2. Results for ma0139.1, the most common motif.    
+The width of the ma0139.1 motif is 19 bases, which is the closest in length to the motifs in the sc-ATAC seq dataset. 
+
+```{r}
+#rmarkdown::render("jaspar2022.Rmd", quiet = TRUE)
+```
+
+## FIMO-predicted CTCF sites
+
+```{r read-fimo-data}
+ctcf.all <- readRDS("data/ctcf.all.rds")
+ctcf.ma0139.1 <- readRDS("data/ctcf.ma0139.1.rds")
+```
+
+Describe the FIMO-saved intervals.
+
+### 3 JASPAR Motifs (MA0139.1 + 2 others)
+
+```{r describe}
+print(paste("Number of CTCF motifs at the default 1e-4 threshold:", length(ctcf.all)))
+summary(width(ctcf.all))
+```
+
+```{r}
+ctcf.all.noovrlp <- reduce(ctcf.all, ignore.strand = TRUE)
+length(ctcf.all.noovrlp)
+```
+
+If we filter more aggresively (p-value < 1e-5), fewer than 50% as many COAD-specific binding sites will be validated (<50% as many) so I'll keep the standard p < 1e-4 cutoff.
+
+###  Motif MA0139.1
+
+```{r desc-ma0 }
+print(paste("Number of CTCF motifs at the default 1e-4 threshold:", length(ctcf.ma0139.1)))
+summary(width(ctcf.ma0139.1))
+ctcf.ma0139.1.noovlp <- reduce(ctcf.ma0139.1, ignore.strand = TRUE)
+length(ctcf.ma0139.1.noovlp)
+```
+
+
+## Cancer-predicted CTCF binding sites
+
+```{r ctcf-scatacseq}
+load(file="data/ctcf_motifs.rda")
+ctcf_coad <- ctcf_motifs %>% plyranges::filter(cancer_type!="BRCA")
+```
+
+
+## How many CTCF intervals in COAD overlap intervals in FIMO?
+```{r}
+subsetByOverlaps(ctcf_coad,ctcf.all.noovrlp) %>% length()
+```
+
+```{r}
+subsetByOverlaps(ctcf_coad,ctcf.ma0139.1.noovlp) %>% length()
+```
+
+### Annotate interval as being in COAD and FIMO
+```{r findO}
+values(ctcf_coad)$pred_type <- values(ctcf_coad)$cancer_type
+
+fO <- findOverlaps(ctcf_coad,ctcf.all.noovrlp)
+length(unique(queryHits(fO)))
+values(ctcf_coad)$pred_type[queryHits(fO)] <-
+                  paste0(values(ctcf_coad)$cancer_type[queryHits(fO)],"+FIMO")
+table(values(ctcf_coad)$cancer_type,values(ctcf_coad)$pred_type)
+```
+
+Add FIMO-predicted only (not in COAD & not in BRCA). I'm going to use the ma0139.1 motif only because there are tons of predicted sites from which to choose.  I don't need to include intervals from other motifs.
+
+```{r}
+FIMOma0139.1_only_ctcf <- subsetByOverlaps(ctcf.ma0139.1.noovlp,ctcf_motifs, invert=TRUE)
+length(FIMOma0139.1_only_ctcf)
+summary(width(FIMOma0139.1_only_ctcf))
+```
+
+```{r}
+values(FIMOma0139.1_only_ctcf) <- DataFrame(group_name  = "CTCF", 
+                                            cancer_type = "none",
+                                            pred_type   = "FIMO" )
+```
+
+```{r combine-gr}
+ctcf_motifs_fimo <- c(ctcf_coad,FIMOma0139.1_only_ctcf)
+table(values(ctcf_motifs_fimo)$pred_type)
+```
+
+
+```{r save-data}
+save(ctcf_motifs_fimo,file="data/ctcf_motifs_fimo.rda")
+```
+

@@ -84,15 +84,15 @@ subsetByOverlaps(ctcf_coad,ctcf.all.noovrlp) %>% length()
 subsetByOverlaps(ctcf_coad,ctcf.ma0139.1.noovlp) %>% length()
 ```
 
-### Annotate interval as being in COAD and FIMO
+### Annotate interval as being in COAD, BRCA and FIMO
 ```{r findO}
-values(ctcf_coad)$pred_type <- values(ctcf_coad)$cancer_type
+values(ctcf_motifs)$pred_type <- values(ctcf_motifs)$cancer_type
 
-fO <- findOverlaps(ctcf_coad,ctcf.all.noovrlp)
+fO <- findOverlaps(ctcf_motifs,ctcf.all.noovrlp)
 length(unique(queryHits(fO)))
-values(ctcf_coad)$pred_type[queryHits(fO)] <-
-                  paste0(values(ctcf_coad)$cancer_type[queryHits(fO)],"+FIMO")
-table(values(ctcf_coad)$cancer_type,values(ctcf_coad)$pred_type)
+values(ctcf_motifs)$pred_type[queryHits(fO)] <-
+                  paste0(values(ctcf_motifs)$cancer_type[queryHits(fO)],"+FIMO")
+table(values(ctcf_motifs)$cancer_type,values(ctcf_motifs)$pred_type)
 ```
 
 Add FIMO-predicted only (not in COAD & not in BRCA). I'm going to use the ma0139.1 motif only because there are tons of predicted sites from which to choose.  I don't need to include intervals from other motifs.
@@ -110,7 +110,7 @@ values(FIMOma0139.1_only_ctcf) <- DataFrame(group_name  = "CTCF",
 ```
 
 ```{r combine-gr}
-ctcf_motifs_fimo <- c(ctcf_coad,FIMOma0139.1_only_ctcf)
+ctcf_motifs_fimo <- c(ctcf_motifs,FIMOma0139.1_only_ctcf)
 table(values(ctcf_motifs_fimo)$pred_type)
 ```
 

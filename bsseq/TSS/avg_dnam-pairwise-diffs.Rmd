@@ -14,19 +14,28 @@ library(GenomicFeatures)
 library(AnnotationDbi)
 library(rtracklayer)
 library(data.table)
+library(ggplot2)
 ```
 
 Read in the beta values from two samples and compute the pairwise differences.
 ```{r bed_file_dirs}
-readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+readdir1 <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
+readdir2 <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
 #readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
 ```
 
 These files are not really BED files because of the header line. Read them in using data.table and create GRanges object.
 ```{r data-files}
 library(data.table)
-samplename <- c("JN","JA","JB","IN","IA","IB")
-fnames <- c("wg_s1c.bed","wg_s2c.bed","wg_s3c.bed","wg_s4c.bed","wg_s5c.bed","wg_s6c.bed")
+samplename <- c("DA","DB","HA","HB","IA","IB","JA","JB","MA","MB","JN","IN")
+fnames <- c("DA.bed","DB.bed","HA.bed","HB.bed","IA.bed","IB.bed",
+            "JA.bed","JB.bed","MA.bed","MB.bed","wg_s1c.bed","wg_s4c.bed")
+n <- length(fnames)
+fpath <- rep(NA,n)
+for (fn in 1:10)
+     fpath[fn] <- file.path(readdir1,fnames[fn])
+for (fn in 11:12) 
+     fpath[fn] <- file.path(readdir2,fnames[fn])
 ```
 
 List of regions to exclude. 
@@ -42,8 +51,9 @@ Read the data into a GRange object, restrict to chromosomes 1-22, X, Y, on the p
 ```{r beta_gr}
 betagrLst <- NULL
 
-for (fn in c(1,4)) {
-    fin <- fread(file.path(readdir,fnames[fn]))
+#n<-2
+for (fn in c(1:n)) {
+    fin <- fread(fpath[fn])
 
     betagr <- GRanges(seqnames = fin$V1,
                    IRanges(start = fin$V2,width=1))
@@ -60,33 +70,72 @@ for (fn in c(1,4)) {
     betagr <- betagr[values(betagr)$depth > 4]
     betagrLst <- c(betagrLst,betagr)
 }
-betagrLst
+names(betagrLst) <- samplename[1:n]
 ```
 
+How many CpGs are measured in each sample?
+```{r nCpGs}
+lapply(betagrLst,length)
+```
 
 
 Now compute pairwise differences from overlaps
 ```{r findOverlaps}
-fO <- findOverlaps(betagrLst[[1]],betagrLst[[2]])
-fO
 
-# restrict to overlapping CpGs
-os1 <- betagrLst[[1]][queryHits(fO)]
-os2 <- betagrLst[[2]][subjectHits(fO)]
-values(pwd_gr) <- data.frame( pwd = abs(values(os1)$beta - values(os2)$beta),
-                              avg =    (values(os1)$beta + values(os2)$beta)/2)
-#pwd_gr
+pairtype <- c("NN","WT","BT","NT")
+
+for (i in 1:(n-1)) {
+  for (j in (i+1):n) {
+
+      fO <- findOverlaps(betagrLst[[i]],betagrLst[[j]])
+      fO
+
+      # restrict to overlapping CpGs
+      os1 <- betagrLst[[i]][queryHits(fO)]
+      os2 <- betagrLst[[j]][subjectHits(fO)]
+      pwd_gr <- os1
+      # I could make this a data table to speed things up
+      values(pwd_gr) <- data.frame( pwd = abs(values(os1)$beta - values(os2)$beta),
+                                    avg =    (values(os1)$beta + values(os2)$beta)/2)
+      #pwd_gr
+      ptype <- ifelse(substr(samplename[i],2,2)=="N" & substr(samplename[j],2,2)=="N", 1,
+                     ifelse(substr(samplename[i],1,1)==substr(samplename[j],1,1) &
+                            substr(samplename[i],2,2)!="N" & substr(samplename[j],2,2)!="N",2,
+                     ifelse(substr(samplename[i],1,1)!=substr(samplename[j],1,1) &
+                            (substr(samplename[i],2,2)!="N" & substr(samplename[j],2,2)!="N"),3,
+                            4)))
+      
+      
+      out<- data.frame(pair = paste0(samplename[i],samplename[j]),
+                       pairtype = pairtype[ptype],
+                       pwd = round(mean(values(pwd_gr)$pwd),6),
+                       avg = round(mean(values(pwd_gr)$avg),6),
+                       nCpG = length(pwd_gr))
+      #out
+      fwrite(out, file = "output.txt", sep = "\t", quote = FALSE, append = TRUE)
+  }
+}
+```
+
+## Summarize PWD
+
+```{r summarize-pwd}
+out <- fread("output.txt",sep = "\t")
+head(out)
 ```
 
 ```{r}
-out<- data.frame(pair = paste0(samplename[1],samplename[4]),
-                 pwd = mean(values(pwd_gr)$pwd),
-                 avg = mean(values(pwd_gr)$avg),
-                 nCpG = length(pwd_gr))
-out
-fwrite(out, file = "output.txt", sep = "\t", quote = FALSE, append = TRUE)
+p <- ggplot(out,mapping = aes(nCpG,pwd,color = pairtype)) +
+           geom_point() +
+           labs(color="Pair Type")
+p
 ```
 
+```{r}
+ggplot(out, aes(x=pairtype, y = pwd, color = pairtype)) +
+        geom_point() +
+        stat_summary(fun=median, geom="point", shape=23,size=2, color="black")
+```
 
 
 ```{r sI-nest}

@@ -1,0 +1,95 @@
+---
+title: "Compute PWD for 2 samples"
+author: "ks"
+date: "2024-10-04"
+output: html_document
+---
+
+```{r setup-nest, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries-nest}
+library(GenomicFeatures)
+library(AnnotationDbi)
+library(rtracklayer)
+library(data.table)
+```
+
+Read in the beta values from two samples and compute the pairwise differences.
+```{r bed_file_dirs}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+#readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
+```
+
+These files are not really BED files because of the header line. Read them in using data.table and create GRanges object.
+```{r data-files}
+library(data.table)
+samplename <- c("JN","JA","JB","IN","IA","IB")
+fnames <- c("wg_s1c.bed","wg_s2c.bed","wg_s3c.bed","wg_s4c.bed","wg_s5c.bed","wg_s6c.bed")
+```
+
+List of regions to exclude. 
+```{r get-list}
+# Load the exclusion list file (for hg38, as an example)
+# starting here https://github.com/Boyle-Lab/Blacklist?tab=readme-ov-file takes me
+# https://www.encodeproject.org/annotations/ENCSR636HFF/
+# and download https://www.encodeproject.org/files/ENCFF356LFX/
+excludelist <- import("../data/ENCFF356LFX.bed")
+```
+
+Read the data into a GRange object, restrict to chromosomes 1-22, X, Y, on the primary assembly, and remove positions that fall in exclusion regions.
+```{r beta_gr}
+betagrLst <- NULL
+
+for (fn in c(1,4)) {
+    fin <- fread(file.path(readdir,fnames[fn]))
+
+    betagr <- GRanges(seqnames = fin$V1,
+                   IRanges(start = fin$V2,width=1))
+                  values(betagr) <- DataFrame(
+                                      beta = fin$V4,
+                                      depth = fin$V5
+                                    )
+
+    desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
+    betagr <- betagr[seqnames(betagr) %in% desired_chromosomes]
+    # Reset seqinfo to only include chromosomes present in the GRanges object
+    betagr <- keepSeqlevels(betagr, seqlevelsInUse(betagr), pruning.mode = "coarse")
+    betagr <- subsetByOverlaps(betagr, excludelist, invert = TRUE)
+    betagr <- betagr[values(betagr)$depth > 4]
+    betagrLst <- c(betagrLst,betagr)
+}
+betagrLst
+```
+
+
+
+Now compute pairwise differences from overlaps
+```{r findOverlaps}
+fO <- findOverlaps(betagrLst[[1]],betagrLst[[2]])
+fO
+
+# restrict to overlapping CpGs
+os1 <- betagrLst[[1]][queryHits(fO)]
+os2 <- betagrLst[[2]][subjectHits(fO)]
+values(pwd_gr) <- data.frame( pwd = abs(values(os1)$beta - values(os2)$beta),
+                              avg =    (values(os1)$beta + values(os2)$beta)/2)
+#pwd_gr
+```
+
+```{r}
+out<- data.frame(pair = paste0(samplename[1],samplename[4]),
+                 pwd = mean(values(pwd_gr)$pwd),
+                 avg = mean(values(pwd_gr)$avg),
+                 nCpG = length(pwd_gr))
+out
+fwrite(out, file = "output.txt", sep = "\t", quote = FALSE, append = TRUE)
+```
+
+
+
+```{r sI-nest}
+sessionInfo()
+```
+

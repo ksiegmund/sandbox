@@ -1,5 +1,5 @@
 ---
-title: "Compute PWD for 2 samples"
+title: "Genomewide average PWD"
 author: "ks"
 date: "2024-10-04"
 output: html_document
@@ -9,7 +9,9 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r libraries-nest}
+## Goal: Read in the beta values for a list of samples and compute pairwise distances.
+
+```{r libraries-nest, message=FALSE}
 library(GenomicFeatures)
 library(AnnotationDbi)
 library(rtracklayer)
@@ -17,17 +19,14 @@ library(data.table)
 library(ggplot2)
 ```
 
-Read in the beta values from two samples and compute the pairwise differences.
-```{r bed_file_dirs}
+Here is the list of sample names, their file locations and names.
+```{r data-files}
+samplename <- c("DA","DB","HA","HB","IA","IB","JA","JB","MA","MB","JN","IN")
+
 readdir1 <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
 readdir2 <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
 #readdir <- c("/Volumes/extreme ssd/Data/hpc-archive/wg_bed/wg_bed5963")
-```
 
-These files are not really BED files because of the header line. Read them in using data.table and create GRanges object.
-```{r data-files}
-library(data.table)
-samplename <- c("DA","DB","HA","HB","IA","IB","JA","JB","MA","MB","JN","IN")
 fnames <- c("DA.bed","DB.bed","HA.bed","HB.bed","IA.bed","IB.bed",
             "JA.bed","JB.bed","MA.bed","MB.bed","wg_s1c.bed","wg_s4c.bed")
 n <- length(fnames)
@@ -38,7 +37,7 @@ for (fn in 11:12)
      fpath[fn] <- file.path(readdir2,fnames[fn])
 ```
 
-List of regions to exclude. 
+This is a list of regions to exclude from mapped sequencing data. This list was developed as part of the ENCODE project.
 ```{r get-list}
 # Load the exclusion list file (for hg38, as an example)
 # starting here https://github.com/Boyle-Lab/Blacklist?tab=readme-ov-file takes me
@@ -47,7 +46,10 @@ List of regions to exclude.
 excludelist <- import("../data/ENCFF356LFX.bed")
 ```
 
-Read the data into a GRange object, restrict to chromosomes 1-22, X, Y, on the primary assembly, and remove positions that fall in exclusion regions.
+The data files have a header line so I will read them in using data.table and then create a GRanges object. Then I will filter on the following conditions:  
+1. Restrict to chromosomes 1-22, X, Y, on the primary assembly   
+2. Remove positions that fall in exclusion regions  
+3. Require >4 read depth.
 ```{r beta_gr}
 betagrLst <- NULL
 
@@ -73,7 +75,7 @@ for (fn in c(1:n)) {
 names(betagrLst) <- samplename[1:n]
 ```
 
-How many CpGs are measured in each sample?
+How many CpGs are measured in each sample after filtering?
 ```{r nCpGs}
 lapply(betagrLst,length)
 ```
@@ -117,7 +119,7 @@ for (i in 1:(n-1)) {
 }
 ```
 
-## Summarize PWD
+## Genomewide average PWDs
 
 ```{r summarize-pwd}
 out <- fread("output.txt",sep = "\t")

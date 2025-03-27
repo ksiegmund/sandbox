@@ -25,29 +25,27 @@ readdir1 <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
 readdir2 <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
 readdir3 <- c("~kims/Google Drive/My Drive/Data/Shibata/wgbs/all beds_wgbsnewbgicombine4_22")
 
-#samplename <- c("DA","DB","HA","HB","IA","IB","JA","JB","MA","MB","JN","IN","EN")
-#fnames <- c("DA.bed","DB.bed","HA.bed","HB.bed","IA.bed","IB.bed",
-#           "JA.bed","JB.bed","MA.bed","MB.bed","wg_s1c.bed","wg_s4c.bed","EN9.bed")
-#n <- length(fnames)
-#fpath <- rep(NA,n)
-#for (fn in 1:10)
-#     fpath[fn] <- file.path(readdir1,fnames[fn])
-#for (fn in 11:12) 
-#     fpath[fn] <- file.path(readdir2,fnames[fn])
-#fpath[13] <- file.path(readdir3,fnames[fn])
-
-
-
-samplename <- c("EA","EB","FA","FB","KA","KB","PA","PB","SA","SB","XA","XB","EN","JN","IN")
-fnames <- c("EA7combine.bed","EB8combine.bed","FA1combine.bed","FBnewer.bed",
-            "KA1.bed","KB2A.bed","PA5combine.bed","PB6combine.bed","SA3.bed","SB4A.bed",
-            "XA3.bed","XBcombine.bed","EN9.bed","wg_s1c.bed","wg_s4c.bed")
+samplename <- c("DA","DB","HA","HB","IA","IB","JA","JB","MA","MB","EN","JN","IN")
+fnames <- c("DA.bed","DB.bed","HA.bed","HB.bed","IA.bed","IB.bed",
+           "JA.bed","JB.bed","MA.bed","MB.bed","EN9.bed","wg_s1c.bed","wg_s4c.bed")
 n <- length(fnames)
 fpath <- rep(NA,n)
-for (fn in 1:13) 
-     fpath[fn] <- file.path(readdir3,fnames[fn])
-for (fn in 14:15) 
+for (fn in 1:10)
+     fpath[fn] <- file.path(readdir1,fnames[fn])
+fpath[11] <- file.path(readdir3,fnames[11])
+for (fn in 12:13) 
      fpath[fn] <- file.path(readdir2,fnames[fn])
+
+#samplename <- c("EA","EB","FA","FB","KA","KB","PA","PB","SA","SB","XA","XB","EN","JN","IN")
+#fnames <- c("EA7combine.bed","EB8combine.bed","FA1combine.bed","FBnewer.bed",
+#            "KA1.bed","KB2A.bed","PA5combine.bed","PB6combine.bed","SA3.bed","SB4A.bed",
+#            "XA3.bed","XBcombine.bed","EN9.bed","wg_s1c.bed","wg_s4c.bed")
+#n <- length(fnames)
+#fpath <- rep(NA,n)
+#for (fn in 1:13) 
+#     fpath[fn] <- file.path(readdir3,fnames[fn])
+#for (fn in 14:15) 
+#     fpath[fn] <- file.path(readdir2,fnames[fn])
 ```
 
 

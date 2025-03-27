@@ -80,6 +80,7 @@ for (i in 1:n) {
               avg_beta = round(mean(beta),6), 
            median_beta = round(median(beta),6),
              avg_depth = round(mean(depth),3),
+          median_depth = median(depth),
              max_depth = max(depth),
            frac_depth5 = round(mean(depth>4),4))]
   stats <- stats[ ,c(sample = samplename[i], stats) ]

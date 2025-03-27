@@ -1,0 +1,96 @@
+---
+title: "DNA methylation data summaries"
+author: "ks"
+date: "2025-03-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+library(rtracklayer)
+```
+
+```{r run-file-check}
+file_to_check <- c("stats_of_wgbs_data.txt")
+if (file.exists(file_to_check)) {
+  stop("File exists. Stopping execution.")
+}
+```
+
+## Remove Exclusion list regions
+
+```{r get-list}
+# Load the exclusion list file (for hg38, as an example)
+# starting here https://github.com/Boyle-Lab/Blacklist?tab=readme-ov-file takes me
+# https://www.encodeproject.org/annotations/ENCSR636HFF/
+# and download https://www.encodeproject.org/files/ENCFF356LFX/
+excludelist <- import("data/ENCFF356LFX.bed")
+```
+
+
+Here is the list of sample names, their file locations and names.
+```{r data-files}
+readdir1 <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
+readdir2 <- c("~kims/Google Drive/My Drive/Data/Shibata/wgbs/all beds_wgbsnewbgicombine4_22")
+readdir3 <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/wg_bed5963")
+
+samplename <- c("DA","DB","HA","HB","IA","IB","JA","JB","MA","MB",
+                "EA","EB","FA","FB","KA","KB","PA","PB","SA","SB","XA","XB","EN","JN","IN")
+fnames <- c("DA.bed","DB.bed","HA.bed","HB.bed","IA.bed","IB.bed","JA.bed","JB.bed","MA.bed","MB.bed",
+            "EA7combine.bed","EB8combine.bed","FA1combine.bed","FBnewer.bed",
+            "KA1.bed","KB2A.bed","PA5combine.bed","PB6combine.bed","SA3.bed","SB4A.bed",
+            "XA3.bed","XBcombine.bed","EN9.bed","wg_s1c.bed","wg_s4c.bed")
+n <- length(fnames)
+fpath <- rep(NA,n)
+for (fn in 1:10) 
+     fpath[fn] <- file.path(readdir1,fnames[fn])
+for (fn in 11:23) 
+     fpath[fn] <- file.path(readdir2,fnames[fn])
+for (fn in 24:25) 
+     fpath[fn] <- file.path(readdir3,fnames[fn])
+```
+
+
+```{r summarize-each-file}
+for (i in 1:n) {
+ fin <- fread(fpath[i])
+  
+  setnames(fin, c("chr","start","end","beta","depth","m","u"))
+  # filter on assembly
+  desired_chromosomes <- paste0("chr",c(as.character(1:22),"X","Y"))
+  fin <- fin[chr %in% desired_chromosomes]
+  # filter on exclude list
+  
+  betav <- GRanges(seqnames = fin$chr,
+                   IRanges(start = fin$start,width=1))
+    values(betav) <- DataFrame(beta = fin$beta,
+                             depth = fin$depth)
+
+  filtered_data <- subsetByOverlaps(betav, excludelist, invert = TRUE)
+  fin <- as.data.table(values(filtered_data))
+  
+  stats <- 
+     fin[, .(n_CpG = .N, 
+              avg_beta = round(mean(beta),6), 
+           median_beta = round(median(beta),6),
+             avg_depth = round(mean(depth),3),
+             max_depth = max(depth),
+           frac_depth5 = round(mean(depth>4),4))]
+  stats <- stats[ ,c(sample = samplename[i], stats) ]
+  
+  fwrite(stats,file = c("stats_of_wgbs_data.txt"), sep = "\t", quote = FALSE, append = TRUE)
+}
+```
+
+
+
+```{r sI}
+sessionInfo()
+```
+

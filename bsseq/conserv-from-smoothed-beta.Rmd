@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(GenomicRanges)
 library(data.table)
 library(ggplot2)
+library(patchwork)
 library(rtracklayer)
 library(dplyr)
 ```
@@ -26,10 +27,9 @@ Tumor M has the lowest average DNA methylation (0.54), suggesting the tumor migh
 EN has highest coverage (median 23) compared to JN, IN (median 15, 13, respectively)
 
 Sample EN, Chromosome 17 has 1083518 CpGs.
-Ben berman summarizes mean DNAm by 5 adjacent CpGs on chromosome 4 (~1470693 CpGs) and and finds PMDs from 20-kb windows.
+Ben Berman summarizes mean DNAm by 5 adjacent CpGs on chromosome 4 (~1470693 CpGs) and and finds PMDs from 20-kb windows.
 
-I will search for conservation in sliding 500bp windows.  
-
+I will search for conservation in windows of 4+ CpGs, > 200bps, each CpGs smoothed beta < median(smoothed beta in normal).  
 
 
 ```{r data-files}
@@ -46,7 +46,7 @@ samplename <- c("MA","MB","IN","JN")
 excludelist <- import("data/ENCFF356LFX.bed.gz")
 ```
 
-```{r summarize-each-file}
+```{r summarize-each-file, echo=FALSE}
 read_bedfile <- 
       function(sample = "MA") {
           fin <- fread(file.path(readdir,paste0(sample,".bed")))
@@ -145,184 +145,226 @@ A quick look at sequencing depth of the Y chromosomes suggests JN, IN are female
 
 There are ~1.08x10^6 CpG sites in chr17. Let's start with that one. Intervals on end are kept if we have more than 5 reads regardless of whether interval only has data from 1/2 the intervals.  Chr17 contains TP53. 
 
-I require that the tumor and normal are measured on the same CpG sites, to control for different sequencing depth of some tumors.  It would be faster to process these separately without this requirement. I could just process all pairs of samples and merge CpGs from the processed data before calling intervals. 
-```{r smoothing-over-intervals}
-pairs.lst <- list(
+I require that the tumor and normal are measured on the same CpG sites, to control for different sequencing depth of some tumors.  It would be faster to process these separately without this requirement. I could just process all pairs of samples and merge CpGs from the processed data before calling intervals. Then I won't be re-calling normal PWDs each time.
+```{r get-list-of-datatables-with-smoothed-pwd}
+nn.pairs.lst <- list(
+  c("JN","IN"),
+  c("JN","EN"),
+  c("IN","EN")
+)
+
+tumor.pairs.lst <- list(
   c("MA","MB"),
-  c("JN","IN")
+  c("HA","HB")
 )
 
 pickchr <- "chr17"
-dt_list <- list()
 
-for (i in 1:length(pairs.lst)) {
-          pair <- pairs.lst[[i]]
+nn.dt_list <- list()
+for (i in 1:length(nn.pairs.lst)) {
+          pair <- nn.pairs.lst[[i]]
           pair 
-          dt_list[[i]] <- combine_paired_samples(pair[1],
-                                                 pair[2], chr=pickchr, 
-                                                 window_size = 500)
+          nn.dt_list[[i]] <- combine_paired_samples(pair[1],
+                                                    pair[2], chr=pickchr, 
+                                                    window_size = 500)
 }
+names(nn.dt_list) <- c("JN_v_IN","JN_v_EN","IN_v_EN")
 
+tumor.dt_list <- list()
+for (i in 1:length(tumor.pairs.lst)) {
+          pair <- tumor.pairs.lst[[i]]
+          pair 
+          tumor.dt_list[[i]] <- combine_paired_samples(pair[1],
+                                                       pair[2], chr=pickchr, 
+                                                    window_size = 500)
+}
+names(tumor.dt_list) <- c("MA_v_MB","HA_v_HB")
+
+```
+
+```{r ncpgs}
+lapply(nn.dt_list,nrow)
+lapply(tumor.dt_list,nrow)
+```
+
+
+```{r merge-dts-before-interval-detection}
 # merge paired samples
-        dtc <- merge(
-                dt_list[[1]][, .(seqnames, start, end, 
-                                 pair1.pwd  = pwd,
-                                 pair1.avgdepth_tot = avgdepth_tot,
-                                 pair1.diff = s12diff,
-                                 pair1.avgb = avgb)],
-                dt_list[[2]][, .(seqnames, start, end, 
+dtc <- merge(
+            tumor.dt_list[[1]][, .(seqnames, start, end, 
+                            pair1.pwd  = pwd,
+                            pair1.avgdepth_tot = avgdepth_tot,
+                            pair1.diff = s12diff,
+                            pair1.avgb = avgb)],
+            nn.dt_list[[1]][, .(seqnames, start, end, 
                                  pair2.pwd  = pwd, 
                                  pair2.avgdepth_tot = avgdepth_tot,
                                  pair2.diff = s12diff,
                                  pair2.avgb = avgb)],
 
-                by.x = c("seqnames", "start", "end"),
-                by.y = c("seqnames", "start", "end")
-              )
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
        
 ndt <- names(dtc)  
-ndt <- sub("pair1",paste0(pairs.lst[[1]][1],"_v_",pairs.lst[[1]][2]),ndt)
-ndt <- sub("pair2",paste0(pairs.lst[[2]][1],"_v_",pairs.lst[[2]][2]),ndt)
+ndt <- sub("pair1",names(tumor.dt_list[1]),ndt)
+ndt <- sub("pair2",   names(nn.dt_list[1]),ndt)
 names(dtc) <- ndt
-```
-
-
-```{r moreprs}
-#        dttn <- merge(
-#                dt_list[[3]][, .(seqnames, start, end, 
-#                                 pair1.pwd  = pwd,
-#                                 pair1.diff = s12diff,
-#                                 pair1.avgb = avgb)],
-#                dt_list[[4]][, .(seqnames, start, end, 
-#                                 pair2.pwd  = pwd, 
-#                                 pair2.diff = s12diff,
-#                                 pair2.avgb = avgb)],
-
-#                by.x = c("seqnames", "start", "end"),
-#                by.y = c("seqnames", "start", "end")
-#              )
-#ndt <- names(dttn)  
-#ndt <- sub("pair1",paste0(pairs.lst[[3]][1],"_v_",pairs.lst[[3]][2]),ndt)
-#ndt <- sub("pair2",paste0(pairs.lst[[4]][1],"_v_",pairs.lst[[4]][2]),ndt)
-#names(dttn) <- ndt
 ```
 
 There are `r nrow(dtc)` CpGs measured in each paired sample.
 
-```{r merge}
-dim(dtc)
-#dim(dttn)
-```
 
 ```{r symmetry}
-hist(dtc$MA_v_MB.diff)
-hist(dtc$JN_v_IN.diff)
-#hist(dttn$IA_v_IN.diff)
-#hist(dttn$IB_v_IN.diff)
+p1 <- ggplot(dtc, aes(x=MA_v_MB.diff)) + geom_histogram()
+p2 <- ggplot(dtc, aes(x=JN_v_IN.diff)) + geom_histogram()
+p1 + p2
 ```
 
 
 
-```{r density-plot1}
-ggplot(dtc, aes(x = JN_v_IN.avgb)) +
+```{r density-plots}
+p1 <- ggplot(dtc, aes(x = JN_v_IN.avgb)) +
   geom_density(fill = "skyblue", alpha = 0.5) +
   labs(
-    title = "Density Plot of Average Beta in Non-tumor colon",
-    x = "Beta value",
+    title = "Non-tumor colon",
+    x = "(smoothed) Beta value",
     y = "Density"
   ) +
   theme_minimal()
+
+p2 <- ggplot(dtc, aes(x = MA_v_MB.avgb)) +
+          geom_density(fill = "skyblue", alpha = 0.5) +
+          labs(
+            title = "Tumor M",
+            x = "(smoothed) Beta value",
+            y = "Density"
+          ) +
+        theme_minimal()
+
+p1 + p2
 ```
 
-```{r plot2}
-ggplot(dtc, aes(x = MA_v_MB.avgb)) +
-  geom_density(fill = "skyblue", alpha = 0.5) +
-  labs(
-    title = "Density Plot of Average Beta in Tumor M",
-    x = "Beta value",
-    y = "Density"
-  ) +
-  theme_minimal()
+plot all pwds
+```{r pwds, echo=FALSE}
+tumor.dtcomb <- rbindlist(tumor.dt_list, idcol = "source")
+nn.dtcomb <- rbindlist(nn.dt_list, idcol = "source")
+dtcomb <- rbind(tumor.dtcomb,nn.dtcomb)
+rm(tumor.dtcomb,nn.dtcomb)
 ```
-
-```{r plot3}
-ggplot(dtc, aes(x = MA_v_MB.pwd)) +
-  geom_density(fill = "skyblue", alpha = 0.5) +
-  labs(
-    title = "Density Plot of PWD in Tumor M",
-    x = "Beta value",
-    y = "Density"
-  ) +
-  theme_minimal()
-```
-
-```{r plot4}
-ggplot(dtc, aes(x = JN_v_IN.pwd)) +
-  geom_density(fill = "skyblue", alpha = 0.5) +
-  labs(
-    title = "Density Plot of PWD in non-tumor colon",
-    x = "Beta value",
-    y = "Density"
-  ) +
-  theme_minimal()
-```
-
-## Plot of smoothed betas along genomic coordinates
-
-
+  
 ```{r}
-ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.avgb)) +
+#pv <- ggplot(dtcomb, aes(x=source, y = pwd, fill = source)) +
+#       geom_violin() +
+  # violin plot with median points
+#        stat_summary(fun=median, geom="point", shape=23, size=2) +
+#        ylim(0,.5) 
+pv + geom_hline(yintercept = 0.05, linetype = "dashed")
+```
+
+
+## Plots along genomic coordinates
+
+```{r browser-view-pmd, echo=FALSE}
+p1 <- ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.avgb)) +
   geom_point(alpha = 0.5, size = 0.7) +
   labs(
-    title = "Average Beta in Normal Tissue (JN,IN)",
+    title = "Normal Tissue (JN,IN)",
     x = "Genomic Position",
-    y = "Average Beta"
+    y = "smoothed Beta"
   ) +
   theme_minimal()
-```
 
-Cool! P53 is here: 7,661,779-7,687,538 (25,760 bp)
-
-```{r pwd-in-normal}
-ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.pwd)) +
+p2 <- ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.pwd)) +
   geom_point(alpha = 0.5, size = 0.7) +
   geom_smooth(method = "gam") +
   labs(
-    title = "PWD in Normal Tissue (JN,IN)",
+    title = "Normal Tissue (JN,IN)",
     x = "Genomic Position",
     y = "PWD"
-  ) +
+  ) + ylim(0,0.45) +
   theme_minimal()
-```
 
-```{r same-in-tumor}
-ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.avgb)) +
+
+p3 <- ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.avgb)) +
   geom_point(alpha = 0.5, size = 0.7) +
   #geom_smooth(method = "gam") +
   labs(
-    title = "Average Beta in Tumor (MA,MB)",
+    title = "Tumor (MA,MB)",
     x = "Genomic Position",
-    y = "Average Beta"
+    y = "smoothed Beta"
   ) +
   theme_minimal()
-```
 
-That's also cool. The right side looks like a partially methylated domain. Is the DNAm conserved?
-
-
-```{r pwd-in-tumor}
-ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.pwd)) +
+p4<- ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.pwd)) +
   geom_point(alpha = 0.5, size = 0.7) +
   geom_smooth(method = "gam") +
   labs(
-    title = "PWD in Tumor (MA,MB)",
+    title = "Tumor (MA,MB)",
     x = "Genomic Position",
     y = "PWD"
-  ) +
+  ) + ylim(0,0.45) +
   theme_minimal()
 ```
 
-The left side of the figure shows more conservation than the right side.
+```{r, echo=FALSE}
+((p1 | p2) / (p3 | p4))
+```
+
+That's cool. The right side looks like a partially methylated domain. Is the DNAm conserved?
+The left side of the figure shows more conservation than the right side for tumor M.
+
+```{r browser-view-p53, echo=FALSE}
+p1 <- ggplot(dtc[125001:130000], aes(x = start, y = JN_v_IN.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) + 
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p2 <- ggplot(dtc[125001:130000], aes(x = start, y = JN_v_IN.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+
+p3 <- ggplot(dtc[125001:130000], aes(x = start, y = MA_v_MB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (MA,MB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p4<- ggplot(dtc[125001:130000], aes(x = start, y = MA_v_MB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (MA,MB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+((p1 | p2) / (p3 | p4))
+```
+P53 is marked in red: 7,661,779-7,687,538 (25,760 bp)
+
 
 ## Define Conserved Regions
 
@@ -344,7 +386,7 @@ Definition of conserved region:
 2. 4+ neighboring conserved CpGs  
 3. minimum width 201 bps
 
-```{r define-intervals}
+```{r define-intervals, echo=FALSE}
 find_Intervals_of_conserv <- function(dtc,ncg=4, minwidth=200, pwd = "MA_v_MB.pwd",
                                       mpwd = median(dtc$JN_v_IN.pwd)){
     dtc$consv <- ifelse(dtc[, ..pwd] < mpwd,1,0)
@@ -468,45 +510,75 @@ Try cluster analysis to identify outliers
 ```{r}
 set.seed(30)
 kmgps <- stats::kmeans(TumorM.dt[,.(n_CpG,width)],centers=2,nstart = 200)
-table(kmgps$cluster)
 ggplot(TumorM.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
     geom_point()
+clustertokeep <- which(kmgps$size==max(kmgps$size)) 
+TumorM.dt <- TumorM.dt[kmgps$cluster==clustertokeep,]
 ```
 
 ```{r filter-outliers}
-#TumorM.dt <- TumorM.dt[kmgps$cluster==2,]
-set.seed(418)
-kmgps <- stats::kmeans(TumorM.dt[,.(n_CpG,width)],centers=2,nstart = 200)
-table(kmgps$cluster)
-ggplot(TumorM.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
-    geom_point()
-```
-
-I will drop intervals with width > 7500
-```{r drop-bigwidths}
-TumorM.dt <- TumorM.dt[width < 7500	,]
-nrow(TumorM.dt)
-```
-
-```{r}
 ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
     geom_point()
 ```
-I plan to send Darryl those with minimum 100 CpGs.
+
+It's hard to know if the clusters near 10000 bps in width are problematic.
+
+In normal I drop those with > 10000 bps.  Let's inspect the large region with > 300 CpGs.
+```{r}
+TumorM.dt[ n_CpG >300 & width > 10000,]
+```
+
+```{r plot-region3}
+plot_region(pos1 = 48621236	, posn = 48631509)
+```
+
+What is the sequencing depth in this region?
+```{r seq-depth, echo=FALSE}
+plot_region_depths <- function(pos1=81510412, posn = 81515609) {
+      sMA <- MA.dt[MA.dt$start > (pos1 - 1) & MA.dt$end < (posn + 1),]
+      sMB <- MB.dt[MB.dt$start > (pos1 - 1) & MB.dt$end < (posn + 1),]
+      sIN <- IN.dt[IN.dt$start > (pos1 - 1) & IN.dt$end < (posn + 1),]
+      sJN <- JN.dt[JN.dt$start > (pos1 - 1) & JN.dt$end < (posn + 1),]
+      sMA$sample <- "MA"
+      sMB$sample <- "MB"
+      sIN$sample <- "IN"
+      sJN$sample <- "JN"
+      long.df <- rbind.data.frame(sMA,sMB,sIN,sJN)
+      long.df$sample <- as.factor(long.df$sample)
+      
+      ggplot(data=long.df, aes(x=start, y=depth_tot, group = sample, color = sample)) +
+          geom_line() + 
+          geom_point()
+}
+plot_region_depths(pos1 = 48621236	, posn = 48631509)
+```
+
+This looks like an interval to keep.
+
+```{r drop-bigwidths}
+cutoff <- TumorM.dt[intIDf==73986, ]$width + 1 
+TumorM.dt <- TumorM.dt[width < cutoff	,]
+
+ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
+Intervals with minimum 100 CpGs show a nice pattern. Is this subset too restrictive?
 
 Let's find intervals conserved in Normal (tidy), and then identify Tumor M intervals that overlap Normal intervals vs distinct.
 
+Actually, I'm going to want to merge intervals that are near each other. Let's still tidy the normal sample intervals first.
+
 ### Normal-Normal (JN,IN)
-```{r consv-intervals}
+```{r consv-intervals-nn}
 nn.dt<- find_Intervals_of_conserv(dtc,pwd = "JN_v_IN.pwd")
 ```
 
-```{r mostCpGs}
+```{r mostCpGs-nn}
 nn.dt[ n_CpG == max(n_CpG),]
 ```
 
 Plot the region with the most CpGs.
-```{r plot1-region1}
+```{r plot1-region2}
 plot_region(pos1 = 8117738, posn = 8127638)
 ```
 
@@ -516,32 +588,33 @@ ggplot(nn.dt, aes( x = n_CpG, y = width)) +
     geom_point()
 ```
 
-Try cluster analysis to identify outliers
+Use cluster analysis to identify outliers.
 ```{r}
 set.seed(30)
 kmgps <- stats::kmeans(nn.dt[,.(n_CpG,width)],centers=2,nstart = 200)
-table(kmgps$cluster)
 ggplot(nn.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
     geom_point()
+clustertokeep <- which(kmgps$size==max(kmgps$size)) 
+nn.dt <- nn.dt[kmgps$cluster==clustertokeep,]
 ```
 
-
+Another iteration does identify more intervals as distinct. 
 ```{r}
-nn.dt <- nn.dt[kmgps$cluster==2,]
 set.seed(4)
 kmgps <- stats::kmeans(nn.dt[,.(n_CpG,width)],centers=2,nstart = 200)
-table(kmgps$cluster)
 ggplot(nn.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
     geom_point()
 ```
 
-Hmmm. I don't want to toss the interval with > 500 CpGs. That plot looked fine earlier.  I will filter on width < 10000.
+Hmmm. I don't want to toss the interval with > 500 CpGs. It already passed my visual inspection.  I will filter on width < 10000.
 
 ```{r}
 nn.dt <- nn.dt[width < 10000,]
 ggplot(nn.dt, aes( x = n_CpG, y = width)) +
     geom_point()
 ```
+
+
 Let's overlap TumorM with normal-normal.
 ```{r overlap}
 TumorM.gr <- GRanges(seqnames=TumorM.dt$seqnames,
@@ -562,31 +635,33 @@ TumorMonly <- subsetByOverlaps(TumorM.gr, nn.gr, invert = TRUE)
 commonRegions <- subsetByOverlaps(TumorM.gr, nn.gr)
 ```
 
-summarize
+
 ```{r}
+print("Specifically Tumor M intervals:")
+length(TumorMonly)
+print("Distribution of widths:")
 summary(width(TumorMonly))
+print("Tumor M & Normal overlapped intervals:")
+length(commonRegions)
+print("Distribution of widths:")
 summary(width(commonRegions))
 ```
 
+Do conserved intervals overlap p53?  I think they should.
 
-```{r}
-commonRegions
-```
-
-7,661,779-7,687,538 (width = 25759 kb)
 ```{r}
 tp53 <- GRanges(seqnames="chr17",
                      IRanges(start = 7661779,end = 7687538))
 subsetByOverlaps(commonRegions,tp53)
 ```
 
-tp53 contains several intervals that are conserved in tumor & normal. Let's analyze distribution between intervals and merge intervals that are close.
-
+Yes. Let's analyze distances between intervals to decide on collapsing intervals into larger regions. Then we can go back and compute average PWD in intervals.
 
 ```{r}
-
+summary(distance(TumorMonly[-length(TumorMonly)], TumorMonly[-1]))
+summary(distance(commonRegions[-length(commonRegions)], commonRegions[-1]))
 ```
-
+Actually, let's go back and use less stringent cutoff for conservation and see if that will reduce the number of intervals. 
 
 
 ```{r sI}

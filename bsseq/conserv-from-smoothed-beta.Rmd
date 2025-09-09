@@ -387,25 +387,26 @@ find_Intervals_of_conserv <- function(dtc,ncg=4, minwidth=200, pwd = "MA_v_MB.pw
 }
 ```
 
-```{r}
-temp <- find_Intervals_of_conserv(dtc,pwd = "MA_v_MB.pwd")
+### Tumor M
+```{r consv-intervals}
+TumorM.dt<- find_Intervals_of_conserv(dtc,pwd = "MA_v_MB.pwd")
 ```
 Interesting. I think that proportion is similar to the proportion of genome that is coding regions. Not what we're computing here though.
 
 Let's find the interval with the most CpGs.
-```{r}
-temp[ n_CpG == max(n_CpG),]
+```{r mostCpGs}
+TumorM.dt[ n_CpG == max(n_CpG),]
 ```
 
 Now let's find the widest interval.
-```{r}
-temp[ width == max(width),]
+```{r widest}
+TumorM.dt[ width == max(width),]
 ```
 
 ## Plot (smoothed) Beta Values for conserved regions
 
 
-```{r}
+```{r data, echo=FALSE}
 MA.gr <- read_bedfile("MA")
 MA.dt <- calc_smoothed_beta(MA.gr, chr="chr17", window_size = 500)
 MB.gr <- read_bedfile("MB")
@@ -417,9 +418,7 @@ IN.dt <- calc_smoothed_beta(IN.gr, chr="chr17", window_size = 500)
 JN.gr <- read_bedfile("JN")
 JN.dt <- calc_smoothed_beta(JN.gr, chr="chr17", window_size = 500)
 rm(IN.gr,JN.gr)
-
 ```
-
 
 
 Handpick intervals to see the differences in conservation.
@@ -446,7 +445,7 @@ plot_region <- function(pos1=81510412, posn = 81515609) {
 
 
 Plot the region with the most CpGs.
-```{r}
+```{r plot1-region1}
 plot_region(pos1 = 81510412, posn = 81515609)
 ```
 
@@ -454,22 +453,141 @@ Yes, that's a long conserved region (~ `r 81515609-81510412` bps)
 
 What about the very long region of just 8 CpGs?
 
-```{r region2}
+```{r plot-region2}
 plot_region(pos1 = 960711, posn = 1062787)
 ```
 
-This looks like some irregular sequencing data. I will drop this interval for tumor M.
+This looks like some irregular sequencing data.  How many such intervals are there (wide with few CpGs)?
+```{r}
+ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
 
 
+Try cluster analysis to identify outliers
+```{r}
+set.seed(30)
+kmgps <- stats::kmeans(TumorM.dt[,.(n_CpG,width)],centers=2,nstart = 200)
+table(kmgps$cluster)
+ggplot(TumorM.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
+    geom_point()
+```
 
-Let's find intervals conserved in tumorM, intervals conserved in Normal, and then identify intervals that overlap vs distinct.
+```{r filter-outliers}
+#TumorM.dt <- TumorM.dt[kmgps$cluster==2,]
+set.seed(418)
+kmgps <- stats::kmeans(TumorM.dt[,.(n_CpG,width)],centers=2,nstart = 200)
+table(kmgps$cluster)
+ggplot(TumorM.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
+    geom_point()
+```
+
+I will drop intervals with width > 7500
+```{r drop-bigwidths}
+TumorM.dt <- TumorM.dt[width < 7500	,]
+nrow(TumorM.dt)
+```
+
+```{r}
+ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
+I plan to send Darryl those with minimum 100 CpGs.
+
+Let's find intervals conserved in Normal (tidy), and then identify Tumor M intervals that overlap Normal intervals vs distinct.
+
+### Normal-Normal (JN,IN)
+```{r consv-intervals}
+nn.dt<- find_Intervals_of_conserv(dtc,pwd = "JN_v_IN.pwd")
+```
+
+```{r mostCpGs}
+nn.dt[ n_CpG == max(n_CpG),]
+```
+
+Plot the region with the most CpGs.
+```{r plot1-region1}
+plot_region(pos1 = 8117738, posn = 8127638)
+```
 
 
+```{r}
+ggplot(nn.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
 
-TP53 is chr17, short arm
-KRAS is chr12, short arm
-APC chr5, long arm
- PIK3CA chr3-long arm, SMAD4 chr18, BRAF chr7, FBXW7 chr4, NRAS chr1, MET chr7, and PTEN chr10. 
+Try cluster analysis to identify outliers
+```{r}
+set.seed(30)
+kmgps <- stats::kmeans(nn.dt[,.(n_CpG,width)],centers=2,nstart = 200)
+table(kmgps$cluster)
+ggplot(nn.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
+    geom_point()
+```
+
+
+```{r}
+nn.dt <- nn.dt[kmgps$cluster==2,]
+set.seed(4)
+kmgps <- stats::kmeans(nn.dt[,.(n_CpG,width)],centers=2,nstart = 200)
+table(kmgps$cluster)
+ggplot(nn.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
+    geom_point()
+```
+
+Hmmm. I don't want to toss the interval with > 500 CpGs. That plot looked fine earlier.  I will filter on width < 10000.
+
+```{r}
+nn.dt <- nn.dt[width < 10000,]
+ggplot(nn.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
+Let's overlap TumorM with normal-normal.
+```{r overlap}
+TumorM.gr <- GRanges(seqnames=TumorM.dt$seqnames,
+                     IRanges(start = TumorM.dt$start,end = TumorM.dt$end))
+values(TumorM.gr) <- DataFrame(id = TumorM.dt$intIDf,
+                                apwd = TumorM.dt$AvB.pwd,
+                                ncpg = TumorM.dt$n_CpG)
+
+
+nn.gr <- GRanges(seqnames=nn.dt$seqnames,
+                     IRanges(start = nn.dt$start,end = nn.dt$end))
+values(nn.gr) <- DataFrame(id = nn.dt$intIDf,
+                                apwd = nn.dt$AvB.pwd,
+                                ncpg = nn.dt$n_CpG)
+
+
+TumorMonly <- subsetByOverlaps(TumorM.gr, nn.gr, invert = TRUE)
+commonRegions <- subsetByOverlaps(TumorM.gr, nn.gr)
+```
+
+summarize
+```{r}
+summary(width(TumorMonly))
+summary(width(commonRegions))
+```
+
+
+```{r}
+commonRegions
+```
+
+7,661,779-7,687,538 (width = 25759 kb)
+```{r}
+tp53 <- GRanges(seqnames="chr17",
+                     IRanges(start = 7661779,end = 7687538))
+subsetByOverlaps(commonRegions,tp53)
+```
+
+tp53 contains several intervals that are conserved in tumor & normal. Let's analyze distribution between intervals and merge intervals that are close.
+
+
+```{r}
+
+```
+
+
 
 ```{r sI}
 sessionInfo()

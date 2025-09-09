@@ -47,7 +47,6 @@ excludelist <- import("data/ENCFF356LFX.bed.gz")
 ```
 
 ```{r summarize-each-file}
-
 read_bedfile <- 
       function(sample = "MA") {
           fin <- fread(file.path(readdir,paste0(sample,".bed")))
@@ -144,9 +143,9 @@ combine_paired_samples <- function (s1,s2, chr = thischr, window_size = 500) {
 
 A quick look at sequencing depth of the Y chromosomes suggests JN, IN are female and EN is male.
 
-There are ~1.08x10^6 sites in chr17. Let's start with that one. Intervals on end are kept if we have more than 5 reads regardless of whether interval only has data from 1/2 the intervals.
-I picked chr17 because it contained TP53. 
+There are ~1.08x10^6 CpG sites in chr17. Let's start with that one. Intervals on end are kept if we have more than 5 reads regardless of whether interval only has data from 1/2 the intervals.  Chr17 contains TP53. 
 
+I require that the tumor and normal are measured on the same CpG sites, to control for different sequencing depth of some tumors.  It would be faster to process these separately without this requirement. I could just process all pairs of samples and merge CpGs from the processed data before calling intervals. 
 ```{r smoothing-over-intervals}
 pairs.lst <- list(
   c("MA","MB"),
@@ -208,6 +207,7 @@ names(dtc) <- ndt
 #names(dttn) <- ndt
 ```
 
+There are `r nrow(dtc)` CpGs measured in each paired sample.
 
 ```{r merge}
 dim(dtc)
@@ -267,20 +267,14 @@ ggplot(dtc, aes(x = JN_v_IN.pwd)) +
   theme_minimal()
 ```
 
+## Plot of smoothed betas along genomic coordinates
 
-
-
-Let's look along genomic coordinates:
-
-```{r}
-#dtc[, row_id := .I]
-```
 
 ```{r}
 ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.avgb)) +
   geom_point(alpha = 0.5, size = 0.7) +
   labs(
-    title = "Average Beta Along Genomic Coordinates (JN,IN)",
+    title = "Average Beta in Normal Tissue (JN,IN)",
     x = "Genomic Position",
     y = "Average Beta"
   ) +
@@ -294,7 +288,7 @@ ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.pwd)) +
   geom_point(alpha = 0.5, size = 0.7) +
   geom_smooth(method = "gam") +
   labs(
-    title = "PWD Along Genomic Coordinates (JN,IN)",
+    title = "PWD in Normal Tissue (JN,IN)",
     x = "Genomic Position",
     y = "PWD"
   ) +
@@ -304,103 +298,108 @@ ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.pwd)) +
 ```{r same-in-tumor}
 ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.avgb)) +
   geom_point(alpha = 0.5, size = 0.7) +
-  geom_smooth(method = "gam") +
+  #geom_smooth(method = "gam") +
   labs(
-    title = "Average Beta Along Genomic Coordinates (MA,MB)",
+    title = "Average Beta in Tumor (MA,MB)",
     x = "Genomic Position",
     y = "Average Beta"
   ) +
   theme_minimal()
 ```
 
+That's also cool. The right side looks like a partially methylated domain. Is the DNAm conserved?
+
+
 ```{r pwd-in-tumor}
 ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.pwd)) +
   geom_point(alpha = 0.5, size = 0.7) +
   geom_smooth(method = "gam") +
   labs(
-    title = "PWD Along Genomic Coordinates (MA,MB)",
+    title = "PWD in Tumor (MA,MB)",
     x = "Genomic Position",
     y = "PWD"
   ) +
   theme_minimal()
 ```
 
-P53 looks like a conserved region.
+The left side of the figure shows more conservation than the right side.
 
-```{r}
+## Define Conserved Regions
+
+The smoothed betas have been estimated using all CpGs in a window of 500 bps and requiring a depth of 5+ reads from that interval, so they are more stable than beta values from single CpGs. Let's look at the distribution of PWD from the smoothed beta values and pick a cutoff for defining conservation. 
+
+```{r summarize}
+print("Tumor M PWD")
 summary(dtc$MA_v_MB.pwd)
+print("Normal J,I PWD")
 summary(dtc$JN_v_IN.pwd)
 mpwd <- median(dtc$JN_v_IN.pwd)
 ```
+The within tumor PWD is less than the between normal PWD.
+
+I will use the median PWD in normal tissue to define conservation. This is more stringent than the 0.05 cutoff we've used in the past.
 
 Definition of conserved region:  
-PWD < median(PWD JN vs IN) (= 0.03545)
-Require 4+ neighboring conserved CpGs.
-Let's require a minimum width 200 bps.
-```{r}
-dtc$Mconsv <- ifelse(dtc$MA_v_MB.pwd < mpwd,1,0)
-Mc <- rle(dtc$Mconsv)
+1. (smoothed) CpG PWD < median(PWD JN vs IN) (= `r round(mpwd,3)`)  
+2. 4+ neighboring conserved CpGs  
+3. minimum width 201 bps
+
+```{r define-intervals}
+find_Intervals_of_conserv <- function(dtc,ncg=4, minwidth=200, pwd = "MA_v_MB.pwd",
+                                      mpwd = median(dtc$JN_v_IN.pwd)){
+    dtc$consv <- ifelse(dtc[, ..pwd] < mpwd,1,0)
+
+    # compute run-lengths of 1/0s
+    Mc <- rle(dtc$consv)
+    # assign unique IDs to the different intervals
+    intID <- rep(1:length(Mc$values), Mc$lengths)
+    # if the values are 0, assign ID name 0
+    intID <- intID * dtc$consv
+    # count number of CpGs per interval
+    tc <- table(intID)
+    
+    print(paste("Number of intervals:",length(tc)))
+    print("Distribution of num CpGs per interval:")
+    print(summary(as.vector(tc[-1]))) #exclude count for intID=0 (1st element of vector)
+    
+    # get the intID for intervals with fewer than ncg and assign ID 0
+    shortint <- names(tc)[tc<ncg]
+    intIDf <- ifelse(is.element(intID,shortint),0,intID)
+    dtc$intIDf <- intIDf
+    
+    # subset to conserved CpGs (those with positive ID numbers)
+    # get bed file format of conserved regions
+    dtcf.sum <- dtc[intIDf > 0 , .(start = min(start),
+                                   end   = max(end),
+                                 AvB.pwd = mean(get(pwd), na.rm=T),
+                                   n_CpG = .N), by = .(intIDf, seqnames)]
+    # add widths 
+    dtcf.sum$width <- dtcf.sum$end-dtcf.sum$start
+    # summarize interval widths
+    print("Interval widths")
+    print(summary(dtcf.sum$width))
+    # requires intervals have minimum minwidth bps 
+    print(paste("require minimum width of",minwidth))
+    dtcf.sum <- dtcf.sum[ width > minwidth, ]
+    print(paste("Number of intervals remaining:",nrow(dtcf.sum)))
+    print(paste("# intervals/ original # CpGs:",round(nrow(dtcf.sum)/nrow(dtc),3)))
+    dtcf.sum
+}
 ```
 
 ```{r}
-summary(Mc$lengths[Mc$values==1])
-consvint <- rep(1:length(Mc$lengths), Mc$lengths)
-consvint <- consvint * dtc$Mconsv
+temp <- find_Intervals_of_conserv(dtc,pwd = "MA_v_MB.pwd")
 ```
-
-Find the longest conserved region
-```{r}
-tc <- table(consvint)
-```
-
-Require 4+ neighboring conserved CpGs.
-```{r}
-shortint <- names(tc)[tc<4]
-consv4int <- ifelse(is.element(consvint,shortint),0,consvint)
-```
-
-Number of intervals.
-```{r}
-#table(consv4int)
-length(table(consv4int))
-```
-
-Add this to dtc and make a bed file of these intervals.
-```{r}
-dtc$consv4tM <- consv4int
-dtcf <- dtc[consv4tM > 0,]
-
-dtcf.sum <- dtcf[ , .(start = min(start),
-                      end   = max(end),
-                      AvB.pwd = mean(MA_v_MB.pwd, na.rm=T),
-                      n_CpG = .N), by = .(consv4tM, seqnames)]
-```
-
-```{r}
-dtcf.sum
-```
-
-What is the distribution of interval widths?
-
-```{r width-distn}
-summary(dtcf.sum$end-dtcf.sum$start)
-```
-
-Let's require minimum width 201 bps
-```{r}
-dtcf.sum$width <- dtcf.sum$end-dtcf.sum$start
-dtcf.sum <- dtcf.sum[ width > 200, ]
-```
-Now there are `r nrow(dtcf.sum)` intervals.
+Interesting. I think that proportion is similar to the proportion of genome that is coding regions. Not what we're computing here though.
 
 Let's find the interval with the most CpGs.
 ```{r}
-dtcf.sum[ n_CpG == max(n_CpG),]
+temp[ n_CpG == max(n_CpG),]
 ```
 
 Now let's find the widest interval.
 ```{r}
-dtcf.sum[ width == max(width),]
+temp[ width == max(width),]
 ```
 
 ## Plot (smoothed) Beta Values for conserved regions
@@ -464,8 +463,6 @@ This looks like some irregular sequencing data. I will drop this interval for tu
 
 
 Let's find intervals conserved in tumorM, intervals conserved in Normal, and then identify intervals that overlap vs distinct.
-
-
 
 
 

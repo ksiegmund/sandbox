@@ -1,0 +1,632 @@
+---
+title: "Conservation from smoothed betas"
+author: "ks"
+date: "2025-09-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+library(patchwork)
+library(rtracklayer)
+library(dplyr)
+```
+
+Darryl suggested generating a BED file of 1Mb region (1 million bases) around conserved sites (avg PWD < 0.1).
+
+Let's smooth the sample beta value estimates by pooling m,u read counts in 500 bp intervals as recommended by NAR 2015 'DSS-single' paper.
+
+Here is the list of sample names, their file locations and names.
+Tumor M has the lowest average DNA methylation (0.54), suggesting the tumor might have the widest distribution of conservation. Tumor H would be another to try (mean DNAm = 0.57).
+EN has highest coverage (median 23) compared to JN, IN (median 15, 13, respectively)
+
+Sample EN, Chromosome 17 has 1083518 CpGs.
+Ben Berman summarizes mean DNAm by 5 adjacent CpGs on chromosome 4 (~1470693 CpGs) and and finds PMDs from 20-kb windows.
+
+I will search for conservation in windows of 4+ CpGs, > 200bps, each CpGs smoothed beta < median(smoothed beta in normal).  
+
+
+```{r data-files}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
+samplename <- c("MA","MB","IN","JN")
+```
+
+
+```{r get-list}
+# Load the exclusion list file (for hg38, as an example)
+# starting here https://github.com/Boyle-Lab/Blacklist?tab=readme-ov-file takes me
+# https://www.encodeproject.org/annotations/ENCSR636HFF/
+# and download https://www.encodeproject.org/files/ENCFF356LFX/
+excludelist <- import("data/ENCFF356LFX.bed.gz")
+```
+
+```{r summarize-each-file, echo=FALSE}
+read_bedfile <- 
+      function(sample = "MA") {
+          fin <- fread(file.path(readdir,paste0(sample,".bed")))
+  
+          setnames(fin, c("chr","start","end","beta","depth","m","u"))
+          # filter on assembly
+          desired_chromosomes <- paste0("chr",c(as.character(1:22),"X","Y"))
+          fin <- fin[chr %in% desired_chromosomes]
+          # filter on exclude list
+  
+          betav <- GRanges(seqnames = fin$chr,
+                            IRanges(start = fin$start,end = fin$end))
+          values(betav) <- DataFrame(m = fin$m, depth = fin$depth)
+
+          s1 <- subsetByOverlaps(betav, excludelist, invert = TRUE)
+          s1  
+      }
+
+calc_smoothed_beta <- 
+  function(gr, chr="chr17", window_size = 500) {
+      # Convert GRanges to data.table
+       s1 <- as.data.table(gr)
+       s1 <- s1[seqnames==chr]
+       s1[, row_id := .I]
+     
+
+      half_window <- window_size / 2
+      # Expand each interval by 250 bp in both directions
+      s1[, `:=`(
+           smooth_start = start - half_window,
+             smooth_end = end + half_window
+       )]
+       # Create a copy for overlap comparison
+      s1_overlap <- copy(s1)
+      # Set keys for fast overlap join
+      setkey(s1_overlap, seqnames, start, end)
+
+      # Perform a self-join to find overlaps within the smoothed window
+      hits <- foverlaps(
+          s1[, .(row_id, seqnames, start = smooth_start, end = smooth_end)],
+          s1_overlap[, .(row_id_match = row_id, seqnames, start, end, m, depth)],
+          by.x = c("seqnames", "start", "end"),
+          by.y = c("seqnames", "start", "end"),
+          type = "any",
+          nomatch = 0
+      )
+
+      # Now for each original row, compute total m and total depth from overlapping intervals
+      rm(s1_overlap)
+      smoothed_scores <- hits[, .(m_tot     = sum(m, na.rm = TRUE),
+                                  depth_tot = sum(depth,na.rm=TRUE) ), by = row_id]
+
+      # Merge smoothed scores back to original
+      s1 <- merge(s1, smoothed_scores, by = "row_id", all.x = TRUE, sort = FALSE)
+      table(s1$depth_tot>4)
+
+      s1 <- s1[depth_tot > 4]
+      s1$smoothed_beta <- s1$m_tot/s1$depth_tot
+      s1
+}
+
+combine_paired_samples <- function (s1,s2, chr = thischr, window_size = 500) {
+#  s1 <- "IA"
+#  s2 <- "IB"
+#  chr <- "chr18"
+#  window_size <- 500
+  
+        s1.gr <- read_bedfile(sample=s1)
+        s1_smoothed_beta <- calc_smoothed_beta(s1.gr,chr=chr,window_size=window_size)
+ 
+        s2.gr <- read_bedfile(sample=s2)
+        s2_smoothed_beta <- calc_smoothed_beta(s2.gr,chr=chr,window_size=window_size)
+
+        setkey(s1_smoothed_beta, seqnames, start, end)
+        setkey(s2_smoothed_beta, seqnames, start, end)
+        
+        dt <- merge(
+                s1_smoothed_beta[, .(seqnames, start, end, s1.smoothed_beta = smoothed_beta, s1.depth_tot = depth_tot)],
+                s2_smoothed_beta[, .(seqnames, start, end, s2.smoothed_beta = smoothed_beta, s2.depth_tot = depth_tot)],
+                by.x = c("seqnames", "start", "end"),
+                by.y = c("seqnames", "start", "end")
+              )
+        
+        rm(s1.gr,s2.gr)
+        
+        dt$pwd      = abs(dt$s1.smoothed_beta - dt$s2.smoothed_beta)
+        dt$avgdepth_tot = dt$s1.depth_tot + dt$s2.depth_tot
+        dt$s12diff  = dt$s1.smoothed_beta - dt$s2.smoothed_beta
+        dt$avgb     = (dt$s1.smoothed_beta + dt$s2.smoothed_beta)/2
+        dt
+}
+```
+
+
+A quick look at sequencing depth of the Y chromosomes suggests JN, IN are female and EN is male.
+
+There are ~1.08x10^6 CpG sites in chr17. Let's start with that one. Intervals on end are kept if we have more than 5 reads regardless of whether interval only has data from 1/2 the intervals.  Chr17 contains TP53. 
+
+I require that the tumor and normal are measured on the same CpG sites, to control for different sequencing depth of some tumors.  Samples are processed individually and CpGs are merged for comparisons of PWDs before calling intervals. 
+```{r get-list-of-datatables-with-smoothed-pwd}
+pickchr <- "chr17"
+
+nn.pairs.lst <- list(
+  c("JN","IN"),
+  c("JN","EN"),
+  c("IN","EN")
+)
+
+tumor.pairs.lst <- list(
+  c("MA","MB"),
+  c("HA","HB")
+)
+```
+
+```{r process, echo=FALSE}
+nn.dt_list <- list()
+for (i in 1:length(nn.pairs.lst)) {
+          pair <- nn.pairs.lst[[i]]
+          pair 
+          nn.dt_list[[i]] <- combine_paired_samples(pair[1],
+                                                    pair[2], chr=pickchr, 
+                                                    window_size = 500)
+}
+names(nn.dt_list) <- c("JN_v_IN","JN_v_EN","IN_v_EN")
+
+tumor.dt_list <- list()
+for (i in 1:length(tumor.pairs.lst)) {
+          pair <- tumor.pairs.lst[[i]]
+          pair 
+          tumor.dt_list[[i]] <- combine_paired_samples(pair[1],
+                                                       pair[2], chr=pickchr, 
+                                                    window_size = 500)
+}
+names(tumor.dt_list) <- c("MA_v_MB","HA_v_HB")
+
+```
+
+```{r ncpgs}
+lapply(nn.dt_list,nrow)
+lapply(tumor.dt_list,nrow)
+```
+
+
+```{r merge-dts-before-interval-detection, echo=FALSE}
+# merge paired samples
+dtc <- merge(
+            tumor.dt_list[[1]][, .(seqnames, start, end, 
+                            pair1.pwd  = pwd,
+                            pair1.avgdepth_tot = avgdepth_tot,
+                            pair1.diff = s12diff,
+                            pair1.avgb = avgb)],
+            nn.dt_list[[1]][, .(seqnames, start, end, 
+                                 pair2.pwd  = pwd, 
+                                 pair2.avgdepth_tot = avgdepth_tot,
+                                 pair2.diff = s12diff,
+                                 pair2.avgb = avgb)],
+
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
+       
+ndt <- names(dtc)  
+ndt <- sub("pair1",names(tumor.dt_list[1]),ndt)
+ndt <- sub("pair2",   names(nn.dt_list[1]),ndt)
+names(dtc) <- ndt
+```
+
+There are `r nrow(dtc)` CpGs measured in each paired sample.
+
+
+```{r symmetry, echo=FALSE}
+#p1 <- ggplot(dtc, aes(x=MA_v_MB.diff)) + geom_histogram()
+#p2 <- ggplot(dtc, aes(x=JN_v_IN.diff)) + geom_histogram()
+#p1 + p2
+```
+
+
+
+```{r density-plots}
+p1 <- ggplot(dtc, aes(x = JN_v_IN.avgb)) +
+  geom_density(fill = "skyblue", alpha = 0.5) +
+  labs(
+    title = "Non-tumor colon",
+    x = "(smoothed) Beta value",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+p2 <- ggplot(dtc, aes(x = MA_v_MB.avgb)) +
+          geom_density(fill = "skyblue", alpha = 0.5) +
+          labs(
+            title = "Tumor M",
+            x = "(smoothed) Beta value",
+            y = "Density"
+          ) +
+        theme_minimal()
+
+p1 + p2
+```
+
+plot all pwds
+```{r pwds, echo=FALSE}
+tumor.dtcomb <- rbindlist(tumor.dt_list, idcol = "source")
+nn.dtcomb <- rbindlist(nn.dt_list, idcol = "source")
+dtcomb <- rbind(tumor.dtcomb,nn.dtcomb)
+rm(tumor.dtcomb,nn.dtcomb)
+```
+  
+```{r}
+pv <- ggplot(dtcomb, aes(x=source, y = pwd, fill = source)) +
+       geom_violin() +
+  # violin plot with median points
+        stat_summary(fun=median, geom="point", shape=23, size=2) +
+        ylim(0,.5) 
+pv + geom_hline(yintercept = 0.05, linetype = "dashed")
+```
+
+
+## Plots along genomic coordinates
+
+```{r browser-view-pmd, echo=FALSE}
+p1 <- ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal()
+
+p2 <- ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(0,0.45) +
+  theme_minimal()
+
+
+p3 <- ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (MA,MB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal()
+
+p4<- ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (MA,MB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(0,0.45) +
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+((p1 | p2) / (p3 | p4))
+```
+
+That's cool. The right side looks like a partially methylated domain. Is the DNAm conserved?
+The left side of the figure shows more conservation than the right side for tumor M.
+
+```{r browser-view-p53, echo=FALSE}
+p1 <- ggplot(dtc[125001:130000], aes(x = start, y = JN_v_IN.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) + 
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p2 <- ggplot(dtc[125001:130000], aes(x = start, y = JN_v_IN.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+
+p3 <- ggplot(dtc[125001:130000], aes(x = start, y = MA_v_MB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (MA,MB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p4<- ggplot(dtc[125001:130000], aes(x = start, y = MA_v_MB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (MA,MB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+((p1 | p2) / (p3 | p4))
+```
+
+P53 is marked in red: 7,661,779-7,687,538 (25,760 bp)
+
+
+## Define Conserved Regions
+
+The smoothed betas have been estimated using all CpGs in a window of 500 bps and requiring a depth of 5+ reads from that interval, so they are more stable than beta values from single CpGs. Let's look at the distribution of PWD from the smoothed beta values and pick a cutoff for defining conservation. 
+
+```{r summarize}
+print("Tumor M PWD")
+summary(dtc$MA_v_MB.pwd)
+print("Normal J,I PWD")
+summary(dtc$JN_v_IN.pwd)
+mpwd <- median(dtc$JN_v_IN.pwd)
+```
+The within tumor PWD is less than the between normal PWD.
+
+I will use the median PWD in normal tissue to define conservation. This is more stringent than the 0.05 cutoff we've used in the past.
+
+Definition of conserved region:  
+1. (smoothed) CpG PWD < 0.1 
+2. 4+ neighboring conserved CpGs  
+3. minimum width 201 bps
+
+```{r define-intervals, echo=FALSE}
+find_Intervals_of_conserv <- function(dtc,ncg=4, minwidth=200, pwd = "MA_v_MB.pwd",
+                                      pwd.consv.cutoff = 0.1){
+    dtc$consv <- ifelse(dtc[, ..pwd] < pwd.consv.cutoff,1,0)
+
+    # compute run-lengths of 1/0s
+    Mc <- rle(dtc$consv)
+    # assign unique IDs to the different intervals
+    intID <- rep(1:length(Mc$values), Mc$lengths)
+    # if the values are 0, assign ID name 0
+    intID <- intID * dtc$consv
+    # count number of CpGs per interval
+    tc <- table(intID)
+    
+    print(paste("Number of intervals:",length(tc)))
+    print("Distribution of num CpGs per interval:")
+    print(summary(as.vector(tc[-1]))) #exclude count for intID=0 (1st element of vector)
+    
+    # get the intID for intervals with fewer than ncg and assign ID 0
+    shortint <- names(tc)[tc<ncg]
+    intIDf <- ifelse(is.element(intID,shortint),0,intID)
+    dtc$intIDf <- intIDf
+    
+    # subset to conserved CpGs (those with positive ID numbers)
+    # get bed file format of conserved regions
+    dtcf.sum <- dtc[intIDf > 0 , .(start = min(start),
+                                   end   = max(end),
+                                 AvB.pwd = mean(get(pwd), na.rm=T),
+                                   n_CpG = .N), by = .(intIDf, seqnames)]
+    # add widths 
+    dtcf.sum$width <- dtcf.sum$end-dtcf.sum$start
+    # summarize interval widths
+    print("Interval widths")
+    print(summary(dtcf.sum$width))
+    # requires intervals have minimum minwidth bps 
+    print(paste("require minimum width of",minwidth))
+    dtcf.sum <- dtcf.sum[ width > minwidth, ]
+    print(paste("Number of intervals remaining:",nrow(dtcf.sum)))
+    print(paste("# intervals/ original # CpGs:",round(nrow(dtcf.sum)/nrow(dtc),3)))
+    dtcf.sum
+}
+```
+
+### Tumor M
+```{r consv-intervals}
+TumorM.dt<- find_Intervals_of_conserv(dtc,pwd = "MA_v_MB.pwd")
+```
+Interesting. I think that proportion is similar to the proportion of genome that is coding regions. Not what we're computing here though.
+
+Let's find the interval with the most CpGs.
+```{r mostCpGs}
+TumorM.dt[ n_CpG == max(n_CpG),]
+```
+
+Now let's find the widest interval.
+```{r widest}
+TumorM.dt[ width == max(width),]
+```
+
+## Plot (smoothed) Beta Values for conserved regions
+
+
+```{r data, echo=FALSE}
+MA.gr <- read_bedfile("MA")
+MA.dt <- calc_smoothed_beta(MA.gr, chr="chr17", window_size = 500)
+MB.gr <- read_bedfile("MB")
+MB.dt <- calc_smoothed_beta(MB.gr, chr="chr17", window_size = 500)
+rm(MA.gr,MB.gr)
+
+IN.gr <- read_bedfile("IN")
+IN.dt <- calc_smoothed_beta(IN.gr, chr="chr17", window_size = 500)
+JN.gr <- read_bedfile("JN")
+JN.dt <- calc_smoothed_beta(JN.gr, chr="chr17", window_size = 500)
+rm(IN.gr,JN.gr)
+```
+
+
+Handpick intervals to see the differences in conservation.
+
+```{r plot-region, echo=FALSE}
+plot_region <- function(pos1=81510412, posn = 81515609) {
+      sMA <- MA.dt[MA.dt$start > (pos1 - 1) & MA.dt$end < (posn + 1),]
+      sMB <- MB.dt[MB.dt$start > (pos1 - 1) & MB.dt$end < (posn + 1),]
+      sIN <- IN.dt[IN.dt$start > (pos1 - 1) & IN.dt$end < (posn + 1),]
+      sJN <- JN.dt[JN.dt$start > (pos1 - 1) & JN.dt$end < (posn + 1),]
+      sMA$sample <- "MA"
+      sMB$sample <- "MB"
+      sIN$sample <- "IN"
+      sJN$sample <- "JN"
+      long.df <- rbind.data.frame(sMA,sMB,sIN,sJN)
+      long.df$sample <- as.factor(long.df$sample)
+      
+      ggplot(data=long.df, aes(x=start, y=smoothed_beta, group = sample, color = sample)) +
+          geom_line() + 
+          geom_point()
+}
+```
+
+
+
+Plot the region with the most CpGs.
+```{r plot1-region1}
+plot_region(pos1 = 48609950, posn = 48650197	)
+```
+
+
+What about the very long region of just 8 CpGs?
+
+```{r plot-region2}
+plot_region(pos1 = 36175775, posn = 36586344)
+```
+
+This looks like some irregular sequencing data.  How many such intervals are there (wide with few CpGs)?
+```{r}
+ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
+
+
+Try cluster analysis to identify outliers
+```{r}
+set.seed(30)
+kmgps <- stats::kmeans(TumorM.dt[,.(n_CpG,width)],centers=2,nstart = 200)
+ggplot(TumorM.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
+    geom_point()
+clustertokeep <- which(kmgps$size==max(kmgps$size)) 
+TumorM.dt <- TumorM.dt[kmgps$cluster==clustertokeep,]
+```
+
+```{r filter-outliers}
+ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
+
+It's hard to know if the clusters near 50000 bps in width are problematic.
+
+In normal I drop those with > 10000 bps.  
+
+
+```{r drop-bigwidths}
+TumorM.dt <- TumorM.dt[width < 50000,]
+
+ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
+Let's find intervals conserved in Normal (tidy), and then identify Tumor M intervals that overlap Normal intervals vs distinct.
+
+Actually, I'm going to want to merge intervals that are near each other. Let's still tidy the normal sample intervals first.
+
+### Normal-Normal (JN,IN)
+```{r consv-intervals-nn}
+nn.dt<- find_Intervals_of_conserv(dtc,pwd = "JN_v_IN.pwd")
+```
+
+```{r mostCpGs-nn}
+nn.dt[ n_CpG == max(n_CpG),]
+```
+
+Plot the region with the most CpGs.
+```{r plot1-region2}
+plot_region(pos1 = 8117738, posn = 8127638)
+```
+
+
+```{r}
+ggplot(nn.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
+
+Use cluster analysis to identify outliers.
+```{r}
+set.seed(30)
+kmgps <- stats::kmeans(nn.dt[,.(n_CpG,width)],centers=2,nstart = 200)
+ggplot(nn.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
+    geom_point()
+clustertokeep <- which(kmgps$size==max(kmgps$size)) 
+nn.dt <- nn.dt[kmgps$cluster==clustertokeep,]
+```
+
+Should I add another filter? I can drop 25\% of intervals if I require > 9 CpGs (~20,000 remaining).
+
+```{r}
+#nn.dt.f <- nn.dt[ n_CpG > 9,]
+ggplot(nn.dt, aes( x = n_CpG, y = width)) +
+    geom_point()
+```
+
+
+Let's overlap TumorM with normal-normal.
+```{r overlap}
+TumorM.gr <- GRanges(seqnames=TumorM.dt$seqnames,
+                     IRanges(start = TumorM.dt$start,end = TumorM.dt$end))
+values(TumorM.gr) <- DataFrame(id = TumorM.dt$intIDf,
+                                apwd = TumorM.dt$AvB.pwd,
+                                ncpg = TumorM.dt$n_CpG)
+
+
+nn.gr <- GRanges(seqnames=nn.dt$seqnames,
+                     IRanges(start = nn.dt$start,end = nn.dt$end))
+values(nn.gr) <- DataFrame(id = nn.dt$intIDf,
+                                apwd = nn.dt$AvB.pwd,
+                                ncpg = nn.dt$n_CpG)
+
+
+TumorMonly <- subsetByOverlaps(TumorM.gr, nn.gr, invert = TRUE)
+commonRegions <- subsetByOverlaps(TumorM.gr, nn.gr)
+```
+
+
+```{r}
+print("Specifically Tumor M intervals:")
+length(TumorMonly)
+print("Distribution of widths:")
+summary(width(TumorMonly))
+print("Tumor M & Normal overlapped intervals:")
+length(commonRegions)
+print("Distribution of widths:")
+summary(width(commonRegions))
+```
+
+Do conserved intervals overlap p53?  I think they should.
+
+```{r}
+tp53 <- GRanges(seqnames="chr17",
+                     IRanges(start = 7661779,end = 7687538))
+subsetByOverlaps(commonRegions,tp53)
+```
+
+Yes. Let's analyze distances between intervals to decide on collapsing intervals into larger regions. Then we can go back and compute average PWD in intervals.
+
+```{r}
+summary(distance(TumorMonly[-length(TumorMonly)], TumorMonly[-1]))
+summary(distance(commonRegions[-length(commonRegions)], commonRegions[-1]))
+```
+Actually, let's go back and use less stringent cutoff for conservation and see if that will reduce the number of intervals. 
+
+
+```{r sI}
+sessionInfo()
+```
+

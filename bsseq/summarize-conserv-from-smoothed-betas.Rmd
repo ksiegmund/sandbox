@@ -1,0 +1,822 @@
+---
+title: "Conservation on Chromosome 17 using smoothed betas"
+author: "ks"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(data.table)
+library(ggplot2)
+library(patchwork)
+library(rtracklayer)
+library(dplyr)
+library(GenomeInfoDb)
+library(BSgenome.Hsapiens.UCSC.hg38)
+```
+
+### Background
+
+Darryl suggested generating a BED file of 1Mb region (1 million bases) around conserved sites (avg PWD < 0.1).  Analysis will be prototyped using chromosome 17, picked for containing TP53.
+There are ~1.08x10^6 CpG sites in chr17. 
+
+Here's some methods others have applied to the analysis of WGBS data. Sample beta value estimates are smoothed by pooling m,u read counts in 500 bp intervals (NAR 2015 'DSS-single' paper). I will do this and add the filter of requiring a minimum of 5 reads to retain the estimate. Ben Berman defines methylated-prone regions (in CIMP cancer) by computing mean DNAm in 5 adjacent CpGs on chromosome 4 (~1470693 CpGs) and finds PMDs from 20-kb windows. I will want to apply a threshold for the minimum number of adjacent estimates to define an interval. I use 4, but we might want to increase this. 
+
+Earlier analysis of Darryl's data shows Tumor M has the lowest average DNA methylation (0.54), suggesting the tumor might have the widest distribution of conservation. Tumor H would be another to try (mean DNAm = 0.57). EN has highest coverage (median 23) compared to JN, IN (median 15, 13, respectively). A quick look at sequencing depth of the Y chromosomes suggests JN, IN are female and EN is male.
+
+Once I identify conserved regions in tumor and in normal tissue, I will want to compare them to each other. Because some tumors have higher sequencing depth than normal samples JN, IN, I will require that the tumor and normal are measured on the same CpG sites before calling conserved regions.  Samples are processed individually and CpGs are merged for comparisons of PWDs before calling intervals. 
+
+I will search for conservation in windows of 4+ CpGs, > 200bps, CpG PWD (for smoothed beta) < 0.1. Smoothed beta values on ends of chromosome are kept if we have more than 5 reads regardless of whether interval only has data from 1/2 the intervals.
+
+```{r data-files, cache=TRUE}
+readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
+```
+
+
+```{r get-list, echo=FALSE}
+# Load the exclusion list file (for hg38, as an example)
+# starting here https://github.com/Boyle-Lab/Blacklist?tab=readme-ov-file takes me
+# https://www.encodeproject.org/annotations/ENCSR636HFF/
+# and download https://www.encodeproject.org/files/ENCFF356LFX/
+excludelist <- import("data/ENCFF356LFX.bed.gz")
+```
+
+```{r summarize-each-file, echo=FALSE}
+read_bedfile <- 
+      function(sample = "MA", keepchr="all") {
+          fin <- fread(file.path(readdir,paste0(sample,".bed")))
+  
+          setnames(fin, c("chr","start","end","beta","depth","m","u"))
+          
+          if (keepchr=="all") {
+              # filter on assembly
+              desired_chromosomes <- paste0("chr",c(as.character(1:22),"X","Y"))
+          } else desired_chromosomes <- keepchr
+          fin <- fin[chr %in% desired_chromosomes]
+          # filter on exclude list
+  
+          betav <- GRanges(seqnames = fin$chr,
+                            IRanges(start = fin$start,end = fin$end))
+          values(betav) <- DataFrame(m = fin$m, depth = fin$depth)
+
+          s1 <- subsetByOverlaps(betav, excludelist, invert = TRUE)
+          s1  
+      }
+
+calc_smoothed_beta <- 
+  function(gr, chr="chr17", window_size = 500) {
+      # Convert GRanges to data.table
+       s1 <- as.data.table(gr)
+       s1 <- s1[seqnames==chr]
+       s1[, row_id := .I]
+     
+
+      half_window <- window_size / 2
+      # Expand each interval by 250 bp in both directions
+      s1[, `:=`(
+           smooth_start = start - half_window,
+             smooth_end = end + half_window
+       )]
+       # Create a copy for overlap comparison
+      s1_overlap <- copy(s1)
+      # Set keys for fast overlap join
+      setkey(s1_overlap, seqnames, start, end)
+
+      # Perform a self-join to find overlaps within the smoothed window
+      hits <- foverlaps(
+          s1[, .(row_id, seqnames, start = smooth_start, end = smooth_end)],
+          s1_overlap[, .(row_id_match = row_id, seqnames, start, end, m, depth)],
+          by.x = c("seqnames", "start", "end"),
+          by.y = c("seqnames", "start", "end"),
+          type = "any",
+          nomatch = 0
+      )
+
+      # Now for each original row, compute total m and total depth from overlapping intervals
+      rm(s1_overlap)
+      smoothed_scores <- hits[, .(m_tot     = sum(m, na.rm = TRUE),
+                                  depth_tot = sum(depth,na.rm=TRUE) ), by = row_id]
+
+      # Merge smoothed scores back to original
+      s1 <- merge(s1, smoothed_scores, by = "row_id", all.x = TRUE, sort = FALSE)
+      table(s1$depth_tot>4)
+
+      s1 <- s1[depth_tot > 4]
+      s1$smoothed_beta <- s1$m_tot/s1$depth_tot
+      s1
+}
+
+combine_paired_samples <- function (s1_smoothed_beta,
+                                    s2_smoothed_beta) {
+#  s1 <- "IA"
+#  s2 <- "IB"
+  
+        setkey(s1_smoothed_beta, seqnames, start, end)
+        setkey(s2_smoothed_beta, seqnames, start, end)
+        
+        dt <- merge(
+                s1_smoothed_beta[, .(seqnames, start, end, s1.smoothed_beta = smoothed_beta, s1.depth_tot = depth_tot)],
+                s2_smoothed_beta[, .(seqnames, start, end, s2.smoothed_beta = smoothed_beta, s2.depth_tot = depth_tot)],
+                by.x = c("seqnames", "start", "end"),
+                by.y = c("seqnames", "start", "end")
+              )
+        
+        dt$pwd      = abs(dt$s1.smoothed_beta - dt$s2.smoothed_beta)
+        dt$avgdepth_tot = dt$s1.depth_tot + dt$s2.depth_tot
+        dt$s12diff  = dt$s1.smoothed_beta - dt$s2.smoothed_beta
+        dt$avgb     = (dt$s1.smoothed_beta + dt$s2.smoothed_beta)/2
+        dt
+}
+```
+
+
+
+```{r get-list-of-datatables-with-smoothed-pwd}
+pickchr <- "chr17"
+
+nn.lst <- c("JN","IN","EN")
+tumor.lst <- c("MA","MB","HA","HB","IA","IB","EA","EB")
+
+nn.pairs.lst <- list(
+  c("JN","IN"),
+  c("JN","EN"),
+  c("IN","EN")
+)
+# collapse each vector into one string
+res <- sapply(nn.pairs.lst, function(x) paste(x, collapse = "_v_"))
+names(nn.pairs.lst) <- res
+
+tumor.pairs.lst <- list(
+  c("MA","MB"),
+  c("HA","HB"),
+  c("IA","IB"),
+  c("EA","EB")
+)
+res <- sapply(tumor.pairs.lst, function(x) paste(x, collapse = "_v_"))
+names(tumor.pairs.lst) <- res
+nn.pairs.lst
+#tumor.pairs.lst
+```
+
+```{r process-single-samples, echo=FALSE}
+nn.dt_list <- list()
+for (i in 1:length(nn.lst)) {
+          s1 <- nn.lst[[i]]
+          s1 
+          s1.gr <- read_bedfile(sample=s1, keepchr=pickchr)
+          nn.dt_list[[i]] <- calc_smoothed_beta(s1.gr,chr=pickchr,window_size=500)
+}
+names(nn.dt_list) <- nn.lst
+
+tumor.dt_list <- list()
+for (i in 1:length(tumor.lst)) {
+          s1 <- tumor.lst[[i]]
+          s1 
+          s1.gr <- read_bedfile(sample=s1, keepchr=pickchr)
+          tumor.dt_list[[i]] <- calc_smoothed_beta(s1.gr,chr=pickchr,window_size=500)
+}
+names(tumor.dt_list) <- tumor.lst
+```
+
+```{r summarize-chr17-stats}
+alldt <- c(nn.lst,tumor.lst)
+
+alldt_list <- list()
+for (i in 1:length(alldt)) {
+          s1 <- alldt[[i]]
+          s1 
+          gr <- read_bedfile(sample=s1, keepchr=pickchr)
+          alldt_list[[i]] <- as.data.table(gr)
+}
+names(alldt_list) <- alldt
+
+all.dtcomb <- rbindlist(alldt_list, idcol = "source")
+```
+
+```{r}
+all.dtcomb$beta   <- all.dtcomb$m / all.dtcomb$depth
+# not much effect of filtering on sequencing depth, but let's add it
+all.dtcomb$beta   <- ifelse(all.dtcomb$depth < 4, NA, all.dtcomb$beta)
+all.dtcomb$source <- factor(all.dtcomb$source)
+
+chr17_stats <- 
+     all.dtcomb[, .(n_CpG = .N, 
+                    avg_beta = round(mean(beta,na.rm=T),6), 
+                    median_beta = round(median(beta,na.rm=T),6),
+                    avg_depth = round(mean(depth),3),
+                    median_depth = as.numeric(median(depth)),
+                    max_depth = as.integer(max(depth)),
+                    frac_depth5 = round(mean(depth>4),4)), by = source]
+  
+chr17_stats
+```
+
+```{r combine-pair-samples, echo=FALSE}
+nnpair.dt_list <- list()
+for (i in 1:length(nn.pairs.lst)) {
+          pair <- nn.pairs.lst[[i]]
+          pair 
+          nnpair.dt_list[[i]] <- combine_paired_samples(nn.dt_list[[pair[1]]],
+                                                    nn.dt_list[[pair[2]]])
+}
+names(nnpair.dt_list) <- names(nn.pairs.lst)
+
+tumorpair.dt_list <- list()
+for (i in 1:length(tumor.pairs.lst)) {
+          pair <- tumor.pairs.lst[[i]]
+          pair 
+          tumorpair.dt_list[[i]] <- combine_paired_samples(tumor.dt_list[[pair[1]]],
+                                                    tumor.dt_list[[pair[2]]])
+}
+names(tumorpair.dt_list) <- names(tumor.pairs.lst)
+```
+
+The number of PWD measures for paired samples:
+```{r ncpgs}
+lapply(nnpair.dt_list,nrow)
+lapply(tumorpair.dt_list,nrow)
+```
+
+
+```{r merge-dts-before-interval-detection, echo=FALSE}
+# merge paired samples
+dtc <- merge(
+            tumorpair.dt_list[[1]][, .(seqnames, start, end, 
+                    pair1.pwd = pwd,
+                    pair1.avgdepth_tot = avgdepth_tot,
+                    pair1.avgb = avgb)],
+            nnpair.dt_list[[1]][, .(seqnames, start, end, 
+                    pair2.pwd = pwd, 
+                    pair2.avgdepth_tot = avgdepth_tot,
+                    pair2.avgb = avgb)],
+
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
+       
+ndt <- names(dtc)  
+ndt <- sub("pair1",names(tumorpair.dt_list[1]),ndt)
+ndt <- sub("pair2",names(nnpair.dt_list[1]),ndt)
+names(dtc) <- ndt
+```
+
+There are `r nrow(dtc)` CpGs measured in each paired sample.
+
+
+```{r merge-more-dts, echo=FALSE}
+dtc <- merge(
+            nnpair.dt_list[[1]][, .(seqnames, start, end, 
+                    pair1.pwd = pwd,
+                    pair1.avgdepth_tot = avgdepth_tot,
+                    pair1.avgb = avgb)],
+            nnpair.dt_list[[2]][, .(seqnames, start, end, 
+                    pair2.pwd = pwd, 
+                    pair2.avgdepth_tot = avgdepth_tot,
+                    pair2.avgb = avgb)],
+
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
+       
+ndt <- names(dtc)  
+ndt <- sub("pair1",names(nnpair.dt_list[1]),ndt)
+ndt <- sub("pair2",names(nnpair.dt_list[2]),ndt)
+names(dtc) <- ndt
+
+# merge paired samples
+dtc3 <- merge(
+            dtc,
+            nnpair.dt_list[[3]][, .(seqnames, start, end, 
+                    newpair.pwd = pwd, 
+                    newpair.avgdepth_tot = avgdepth_tot,
+                    newpair.avgb = avgb)],
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
+       
+ndt <- names(dtc3)  
+ndt <- sub("newpair",names(nnpair.dt_list[3]),ndt)
+names(dtc3) <- ndt
+rm(dtc)
+
+# again
+dtc4 <- merge(
+            dtc3,
+            tumorpair.dt_list[[1]][, .(seqnames, start, end, 
+                    newpair.pwd = pwd, 
+                    newpair.avgdepth_tot = avgdepth_tot,
+                    newpair.avgb = avgb)],
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
+       
+ndt <- names(dtc4)  
+ndt <- sub("newpair",names(tumorpair.dt_list[1]),ndt)
+names(dtc4) <- ndt
+rm(dtc3)
+
+# again
+dtc5 <- merge(
+            dtc4,
+            tumorpair.dt_list[[2]][, .(seqnames, start, end, 
+                    newpair.pwd = pwd, 
+                    newpair.avgdepth_tot = avgdepth_tot,
+                    newpair.avgb = avgb)],
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
+       
+ndt <- names(dtc5)  
+ndt <- sub("newpair",names(tumorpair.dt_list[2]),ndt)
+names(dtc5) <- ndt
+rm(dtc4)
+
+# again
+dtc6 <- merge(
+            dtc5,
+            tumorpair.dt_list[[3]][, .(seqnames, start, end, 
+                    newpair.pwd = pwd, 
+                    newpair.avgdepth_tot = avgdepth_tot,
+                    newpair.avgb = avgb)],
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
+       
+ndt <- names(dtc6)  
+ndt <- sub("newpair",names(tumorpair.dt_list[3]),ndt)
+names(dtc6) <- ndt
+rm(dtc5)
+
+# again
+dtc7 <- merge(
+            dtc6,
+            tumorpair.dt_list[[4]][, .(seqnames, start, end, 
+                    newpair.pwd = pwd, 
+                    newpair.avgdepth_tot = avgdepth_tot,
+                    newpair.avgb = avgb)],
+            by.x = c("seqnames", "start", "end"),
+            by.y = c("seqnames", "start", "end")
+            )
+       
+ndt <- names(dtc7)  
+ndt <- sub("newpair",names(tumorpair.dt_list[4]),ndt)
+names(dtc7) <- ndt
+rm(dtc6)
+```
+
+`r nrow(dtc7)` CpGs are retained after merging 7 PWD data sets. 
+
+### Data visualizations
+
+```{r density-plots, echo=FALSE}
+p1 <- ggplot(dtc7, aes(x = JN_v_IN.avgb)) +
+  geom_density(fill = "skyblue", alpha = 0.5) +
+  labs(
+    title = "Non-tumor colon (JN,IN)",
+    x = "Average (smoothed) Beta value",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+p2 <- ggplot(dtc7, aes(x = JN_v_EN.avgb)) +
+  geom_density(fill = "skyblue", alpha = 0.5) +
+  labs(
+    title = "Non-tumor colon (JN,EN)",
+    x = "Average (smoothed) Beta value",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+p3 <- ggplot(dtc7, aes(x = IN_v_EN.avgb)) +
+  geom_density(fill = "skyblue", alpha = 0.5) +
+  labs(
+    title = "Non-tumor colon (IN,EN)",
+    x = "Average (smoothed) Beta value",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+p4 <- ggplot(dtc7, aes(x = MA_v_MB.avgb)) +
+          geom_density(fill = "skyblue", alpha = 0.5) +
+          labs(
+            title = "Tumor M (n=2 samples)",
+            x = "Average (smoothed) Beta value",
+            y = "Density"
+          ) +
+        theme_minimal()
+
+p5 <- ggplot(dtc7, aes(x = HA_v_HB.avgb)) +
+          geom_density(fill = "skyblue", alpha = 0.5) +
+          labs(
+            title = "Tumor H (n=2 samples)",
+            x = "Average (smoothed) Beta value",
+            y = "Density"
+          ) +
+        theme_minimal()
+
+p6 <- ggplot(dtc7, aes(x = IA_v_IB.avgb)) +
+          geom_density(fill = "skyblue", alpha = 0.5) +
+          labs(
+            title = "Tumor I (n=2 samples)",
+            x = "Average (smoothed) Beta value",
+            y = "Density"
+          ) +
+        theme_minimal()
+
+p7 <- ggplot(dtc7, aes(x = EA_v_EB.avgb)) +
+          geom_density(fill = "skyblue", alpha = 0.5) +
+          labs(
+            title = "Tumor E (n=2 samples)",
+            x = "Average (smoothed) Beta value",
+            y = "Density"
+          ) +
+        theme_minimal()
+```
+
+
+```{r}
+(p1 + p2 + p3)/(p4 + p5 + p6)
+```
+
+Tumor I doesn't look any different than normal when we look at the density.
+
+```{r}
+(p3 + p3) /( p6 + p7)
+```
+
+
+Plot all pwds
+```{r pwds, echo=FALSE}
+tumor.dtcomb <- rbindlist(tumorpair.dt_list, idcol = "source")
+nn.dtcomb <- rbindlist(nnpair.dt_list, idcol = "source")
+dtcomb <- rbind(tumor.dtcomb,nn.dtcomb)
+rm(tumor.dtcomb,nn.dtcomb)
+```
+  
+```{r}
+pv <- ggplot(dtcomb, aes(x=source, y = pwd, fill = source)) +
+       geom_violin() +
+  # violin plot with median points
+        stat_summary(fun=median, geom="point", shape=23, size=2) +
+        ylim(0,.5) 
+pv + geom_hline(yintercept = 0.05, linetype = "dashed")
+```
+
+
+## Plots along genomic coordinates (Normal & Tumor M only)
+
+```{r browser-view-pmd, echo=FALSE}
+p1 <- ggplot(dtc7[5001:10000], aes(x = start, y = JN_v_IN.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal()
+
+p2 <- ggplot(dtc7[5001:10000], aes(x = start, y = JN_v_IN.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(0,0.45) +
+  theme_minimal()
+
+
+p3 <- ggplot(dtc7[5001:10000], aes(x = start, y = MA_v_MB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (MA,MB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal()
+
+p4<- ggplot(dtc7[5001:10000], aes(x = start, y = MA_v_MB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (MA,MB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(0,0.45) +
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+((p1 | p2) / (p3 | p4))
+```
+
+That's cool. The right side looks like a partially methylated domain. Is the DNAm conserved?
+The left side of the figure shows more conservation than the right side for tumor M.
+
+```{r browser-view-pmd2, echo=FALSE}
+p1 <- ggplot(dtc7[5001:10000], aes(x = start, y = HA_v_HB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Tumor (HA,HB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal()
+
+p2 <- ggplot(dtc7[5001:10000], aes(x = start, y = HA_v_HB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (HA,HB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(0,0.45) +
+  theme_minimal()
+
+
+p3 <- ggplot(dtc7[5001:10000], aes(x = start, y = EA_v_EB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (EA,EB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal()
+
+p4<- ggplot(dtc7[5001:10000], aes(x = start, y = EA_v_EB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (EA,EB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(0,0.45) +
+  theme_minimal()
+```
+
+
+```{r, echo=FALSE}
+((p1 | p2) / (p3 | p4))
+```
+
+```{r browser-view-pmd3, echo=FALSE}
+p1 <- ggplot(dtc7[5001:10000], aes(x = start, y = IN_v_EN.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Normal Tissue (IN,EN)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal()
+
+p2 <- ggplot(dtc7[5001:10000], aes(x = start, y = IN_v_EN.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Normal Tissue (IN,EN)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(0,0.45) +
+  theme_minimal()
+
+
+p3 <- ggplot(dtc7[5001:10000], aes(x = start, y = IA_v_IB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (IA,IB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal()
+
+p4<- ggplot(dtc7[5001:10000], aes(x = start, y = IA_v_IB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor (IA,IB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(0,0.45) +
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+((p1 | p2) / (p3 | p4))
+```
+
+### Region containing TP53
+
+```{r browser-view-p53, echo=FALSE}
+p1 <- ggplot(dtc7[125001:130000], aes(x = start, y = JN_v_IN.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) + 
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p2 <- ggplot(dtc7[125001:130000], aes(x = start, y = JN_v_IN.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Normal Tissue (JN,IN)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+
+p3 <- ggplot(dtc7[125001:130000], aes(x = start, y = MA_v_MB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor M (MA,MB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p4<- ggplot(dtc7[125001:130000], aes(x = start, y = MA_v_MB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor M (MA,MB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+((p1 | p2) / (p3 | p4)) 
+```
+
+TP53 is marked in red: 7,661,779-7,687,538 (25,760 bp)
+
+```{r browser-view-p53-2, echo=FALSE}
+p1 <- ggplot(dtc7[125001:130000], aes(x = start, y = HA_v_HB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Tumor H (HA,HB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) + 
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p2 <- ggplot(dtc7[125001:130000], aes(x = start, y = HA_v_HB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor H (HA,HB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+
+p3 <- ggplot(dtc7[125001:130000], aes(x = start, y = EA_v_EB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor E (EA,EB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p4<- ggplot(dtc7[125001:130000], aes(x = start, y = EA_v_EB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor E (EA,EB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+((p1 | p2) / (p3 | p4)) 
+```
+
+```{r browser-view-p53-3, echo=FALSE}
+p1 <- ggplot(dtc7[125001:130000], aes(x = start, y = IN_v_EN.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  labs(
+    title = "Normal Tissue (IN,EN)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) + 
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p2 <- ggplot(dtc7[125001:130000], aes(x = start, y = IN_v_EN.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Normal Tissue (IN,EN)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+
+p3 <- ggplot(dtc7[125001:130000], aes(x = start, y = IA_v_IB.avgb)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  #geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor I (IA,IB)",
+    x = "Genomic Position",
+    y = "smoothed Beta"
+  ) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+
+p4<- ggplot(dtc7[125001:130000], aes(x = start, y = IA_v_IB.pwd)) +
+  geom_point(alpha = 0.5, size = 0.7) +
+  geom_smooth(method = "gam") +
+  labs(
+    title = "Tumor I (IA,IB)",
+    x = "Genomic Position",
+    y = "PWD"
+  ) + ylim(-0.02,0.65) +
+  theme_minimal() + geom_segment(aes(x = 7661779, xend = 7687538, y = -0.02, yend = -0.02),
+                                 color = "red", linewidth = 1.3)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+((p1 | p2) / (p3 | p4)) 
+```
+
+
+## Plot more handpicked regions
+
+Handpick intervals to see the differences in conservation.
+
+Want smoothed beta values.
+```{r all_smoothedbetas}
+alldt_list <- c(nn.dt_list,tumor.dt_list)
+
+all.dtcomb <- rbindlist(alldt_list, idcol = "source")
+all.dtcomb$source <- as.factor(all.dtcomb$source)
+```
+
+```{r plot-region, echo=FALSE}
+plot_region <- function(dt, pos1=81510412, posn = 81515609,titletext) {
+      sdt <- dt[dt$start > (pos1 - 1) & dt$end < (posn + 1),]
+       
+      ggplot(data=sdt, aes(x=start, y=smoothed_beta, group = source, color = source)) +
+          geom_line() + 
+          geom_point() +
+          ggtitle(titletext)
+}
+```
+
+Plot the conserved region from Tumor M with the most CpGs.
+```{r plot1-region1}
+plot_region(dt= all.dtcomb, 
+            pos1 = 48609950, posn = 48650197,
+            titletext = "Conserved region in (MA,MB)"	)
+```
+```{r , echo=FALSE}
+plot_region(dt= all.dtcomb[is.element(source,c("MA","MB")),], 
+            pos1 = 48609950, posn = 48650197,
+            titletext = "Conserved region in (MA,MB)"	)
+```
+
+
+```{r , echo=FALSE}
+plot_region(dt= all.dtcomb[is.element(source,c("IA","IB","IN")),], 
+            pos1 = 48609950, posn = 48650197,
+            titletext = "Conserved region in (MA,MB)"	)
+```
+
+
+```{r , echo=FALSE}
+plot_region(dt= all.dtcomb[is.element(source,c("EA","EB","EN")),], 
+            pos1 = 48609950, posn = 48650197,
+            titletext = "Conserved region in (MA,MB)"	)
+```
+
+```{r sI}
+sessionInfo()
+```
+

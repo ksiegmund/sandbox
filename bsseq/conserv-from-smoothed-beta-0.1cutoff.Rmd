@@ -1,7 +1,7 @@
 ---
 title: "Conservation from smoothed betas"
 author: "ks"
-date: "2025-09-05"
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
@@ -16,29 +16,30 @@ library(ggplot2)
 library(patchwork)
 library(rtracklayer)
 library(dplyr)
+library(GenomeInfoDb)
+library(BSgenome.Hsapiens.UCSC.hg38)
 ```
 
-Darryl suggested generating a BED file of 1Mb region (1 million bases) around conserved sites (avg PWD < 0.1).
+### Background
 
-Let's smooth the sample beta value estimates by pooling m,u read counts in 500 bp intervals as recommended by NAR 2015 'DSS-single' paper.
+Darryl suggested generating a BED file of 1Mb region (1 million bases) around conserved sites (avg PWD < 0.1).  Analysis will be prototyped using chromosome 17, picked for containing TP53.
+There are ~1.08x10^6 CpG sites in chr17. 
 
-Here is the list of sample names, their file locations and names.
-Tumor M has the lowest average DNA methylation (0.54), suggesting the tumor might have the widest distribution of conservation. Tumor H would be another to try (mean DNAm = 0.57).
-EN has highest coverage (median 23) compared to JN, IN (median 15, 13, respectively)
+Here's some methods others have applied to the analysis of WGBS data. Sample beta value estimates are smoothed by pooling m,u read counts in 500 bp intervals (NAR 2015 'DSS-single' paper). I will do this and add the filter of requiring a minimum of 5 reads to retain the estimate. Ben Berman defines methylated-prone regions (in CIMP cancer) by computing mean DNAm in 5 adjacent CpGs on chromosome 4 (~1470693 CpGs) and finds PMDs from 20-kb windows. I will want to apply a threshold for the minimum number of adjacent estimates to define an interval. I use 4, but we might want to increase this. 
 
-Sample EN, Chromosome 17 has 1083518 CpGs.
-Ben Berman summarizes mean DNAm by 5 adjacent CpGs on chromosome 4 (~1470693 CpGs) and and finds PMDs from 20-kb windows.
+Earlier analysis of Darryl's data shows Tumor M has the lowest average DNA methylation (0.54), suggesting the tumor might have the widest distribution of conservation. Tumor H would be another to try (mean DNAm = 0.57). EN has highest coverage (median 23) compared to JN, IN (median 15, 13, respectively). A quick look at sequencing depth of the Y chromosomes suggests JN, IN are female and EN is male.
 
-I will search for conservation in windows of 4+ CpGs, > 200bps, each CpGs smoothed beta < median(smoothed beta in normal).  
+Once I identify conserved regions in tumor and in normal tissue, I will want to compare them to each other. Because some tumors have higher sequencing depth than normal samples JN, IN, I will require that the tumor and normal are measured on the same CpG sites before calling conserved regions.  Samples are processed individually and CpGs are merged for comparisons of PWDs before calling intervals. 
 
+I will search for conservation in windows of 4+ CpGs, > 200bps, CpG PWD (for smoothed beta) < 0.1. Smoothed beta values on ends of chromosome are kept if we have more than 5 reads regardless of whether interval only has data from 1/2 the intervals.
 
-```{r data-files}
+```{r data-files, cache=TRUE}
 readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
 samplename <- c("MA","MB","IN","JN")
 ```
 
 
-```{r get-list}
+```{r get-list, echo=FALSE}
 # Load the exclusion list file (for hg38, as an example)
 # starting here https://github.com/Boyle-Lab/Blacklist?tab=readme-ov-file takes me
 # https://www.encodeproject.org/annotations/ENCSR636HFF/
@@ -141,11 +142,7 @@ combine_paired_samples <- function (s1,s2, chr = thischr, window_size = 500) {
 ```
 
 
-A quick look at sequencing depth of the Y chromosomes suggests JN, IN are female and EN is male.
 
-There are ~1.08x10^6 CpG sites in chr17. Let's start with that one. Intervals on end are kept if we have more than 5 reads regardless of whether interval only has data from 1/2 the intervals.  Chr17 contains TP53. 
-
-I require that the tumor and normal are measured on the same CpG sites, to control for different sequencing depth of some tumors.  Samples are processed individually and CpGs are merged for comparisons of PWDs before calling intervals. 
 ```{r get-list-of-datatables-with-smoothed-pwd}
 pickchr <- "chr17"
 
@@ -184,6 +181,7 @@ names(tumor.dt_list) <- c("MA_v_MB","HA_v_HB")
 
 ```
 
+The number of PWD measures for paired samples:
 ```{r ncpgs}
 lapply(nn.dt_list,nrow)
 lapply(tumor.dt_list,nrow)
@@ -216,21 +214,14 @@ names(dtc) <- ndt
 
 There are `r nrow(dtc)` CpGs measured in each paired sample.
 
+### Data visualizations
 
-```{r symmetry, echo=FALSE}
-#p1 <- ggplot(dtc, aes(x=MA_v_MB.diff)) + geom_histogram()
-#p2 <- ggplot(dtc, aes(x=JN_v_IN.diff)) + geom_histogram()
-#p1 + p2
-```
-
-
-
-```{r density-plots}
+```{r density-plots, echo=FALSE}
 p1 <- ggplot(dtc, aes(x = JN_v_IN.avgb)) +
   geom_density(fill = "skyblue", alpha = 0.5) +
   labs(
-    title = "Non-tumor colon",
-    x = "(smoothed) Beta value",
+    title = "Non-tumor colon (JN,IN)",
+    x = "Average (smoothed) Beta value",
     y = "Density"
   ) +
   theme_minimal()
@@ -238,8 +229,8 @@ p1 <- ggplot(dtc, aes(x = JN_v_IN.avgb)) +
 p2 <- ggplot(dtc, aes(x = MA_v_MB.avgb)) +
           geom_density(fill = "skyblue", alpha = 0.5) +
           labs(
-            title = "Tumor M",
-            x = "(smoothed) Beta value",
+            title = "Tumor M (n=2 samples)",
+            x = "Average (smoothed) Beta value",
             y = "Density"
           ) +
         theme_minimal()
@@ -247,7 +238,7 @@ p2 <- ggplot(dtc, aes(x = MA_v_MB.avgb)) +
 p1 + p2
 ```
 
-plot all pwds
+Plot all pwds
 ```{r pwds, echo=FALSE}
 tumor.dtcomb <- rbindlist(tumor.dt_list, idcol = "source")
 nn.dtcomb <- rbindlist(nn.dt_list, idcol = "source")
@@ -265,7 +256,7 @@ pv + geom_hline(yintercept = 0.05, linetype = "dashed")
 ```
 
 
-## Plots along genomic coordinates
+## Plots along genomic coordinates (Normal & Tumor M only)
 
 ```{r browser-view-pmd, echo=FALSE}
 p1 <- ggplot(dtc[5001:10000], aes(x = start, y = JN_v_IN.avgb)) +
@@ -316,6 +307,8 @@ p4<- ggplot(dtc[5001:10000], aes(x = start, y = MA_v_MB.pwd)) +
 That's cool. The right side looks like a partially methylated domain. Is the DNAm conserved?
 The left side of the figure shows more conservation than the right side for tumor M.
 
+### Region containing TP53
+
 ```{r browser-view-p53, echo=FALSE}
 p1 <- ggplot(dtc[125001:130000], aes(x = start, y = JN_v_IN.avgb)) +
   geom_point(alpha = 0.5, size = 0.7) +
@@ -363,31 +356,35 @@ p4<- ggplot(dtc[125001:130000], aes(x = start, y = MA_v_MB.pwd)) +
 ```
 
 ```{r, echo=FALSE, warning=FALSE}
-((p1 | p2) / (p3 | p4))
+((p1 | p2) / (p3 | p4)) 
 ```
 
-P53 is marked in red: 7,661,779-7,687,538 (25,760 bp)
+TP53 is marked in red: 7,661,779-7,687,538 (25,760 bp)
 
 
 ## Define Conserved Regions
 
 The smoothed betas have been estimated using all CpGs in a window of 500 bps and requiring a depth of 5+ reads from that interval, so they are more stable than beta values from single CpGs. Let's look at the distribution of PWD from the smoothed beta values and pick a cutoff for defining conservation. 
 
-```{r summarize}
-print("Tumor M PWD")
+Tumor M PWD:
+```{r}
 summary(dtc$MA_v_MB.pwd)
-print("Normal J,I PWD")
+```
+
+
+Normal J,I PWD:
+```{r summarize}
 summary(dtc$JN_v_IN.pwd)
-mpwd <- median(dtc$JN_v_IN.pwd)
 ```
 The within tumor PWD is less than the between normal PWD.
 
-I will use the median PWD in normal tissue to define conservation. This is more stringent than the 0.05 cutoff we've used in the past.
-
 Definition of conserved region:  
-1. (smoothed) CpG PWD < 0.1 
+1. (smoothed) CpG PWD < 0.1   
 2. 4+ neighboring conserved CpGs  
 3. minimum width 201 bps
+
+I also tried using the median PWD in normal tissue to define conservation. This is more stringent than the 0.05 cutoff we've used in the past and yielded another ~5000 intervals. The increase in number of intervals can happen by having multiple shorter intervals of high conservation nested in a larger conserved region defined by the looser PWD cutoff.
+
 
 ```{r define-intervals, echo=FALSE}
 find_Intervals_of_conserv <- function(dtc,ncg=4, minwidth=200, pwd = "MA_v_MB.pwd",
@@ -408,6 +405,7 @@ find_Intervals_of_conserv <- function(dtc,ncg=4, minwidth=200, pwd = "MA_v_MB.pw
     print(summary(as.vector(tc[-1]))) #exclude count for intID=0 (1st element of vector)
     
     # get the intID for intervals with fewer than ncg and assign ID 0
+    print("Require minimum 4 CpGs per interval")
     shortint <- names(tc)[tc<ncg]
     intIDf <- ifelse(is.element(intID,shortint),0,intID)
     dtc$intIDf <- intIDf
@@ -436,7 +434,7 @@ find_Intervals_of_conserv <- function(dtc,ncg=4, minwidth=200, pwd = "MA_v_MB.pw
 ```{r consv-intervals}
 TumorM.dt<- find_Intervals_of_conserv(dtc,pwd = "MA_v_MB.pwd")
 ```
-Interesting. I think that proportion is similar to the proportion of genome that is coding regions. Not what we're computing here though.
+There are still a lot of intervals to study using this definition. Should I require they be longer than 200 bps?
 
 Let's find the interval with the most CpGs.
 ```{r mostCpGs}
@@ -488,12 +486,12 @@ plot_region <- function(pos1=81510412, posn = 81515609) {
 ```
 
 
-
 Plot the region with the most CpGs.
 ```{r plot1-region1}
 plot_region(pos1 = 48609950, posn = 48650197	)
 ```
 
+This data looks good.
 
 What about the very long region of just 8 CpGs?
 
@@ -501,42 +499,32 @@ What about the very long region of just 8 CpGs?
 plot_region(pos1 = 36175775, posn = 36586344)
 ```
 
-This looks like some irregular sequencing data.  How many such intervals are there (wide with few CpGs)?
-```{r}
-ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+This looks like some irregular sequencing data.  How many such intervals are there (wide with few CpGs)?  Apply cluster analysis to identify outlier intervals that are extremely wide and omit them.
+```{r filter-outliers}
+p1 <- ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
     geom_point()
-```
 
-
-Try cluster analysis to identify outliers
-```{r}
 set.seed(30)
 kmgps <- stats::kmeans(TumorM.dt[,.(n_CpG,width)],centers=2,nstart = 200)
-ggplot(TumorM.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
+gp <- factor(kmgps$cluster)
+p2 <- ggplot(TumorM.dt, aes( x = n_CpG, y = width, color = gp)) +
     geom_point()
+
 clustertokeep <- which(kmgps$size==max(kmgps$size)) 
 TumorM.dt <- TumorM.dt[kmgps$cluster==clustertokeep,]
-```
-
-```{r filter-outliers}
-ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+p3<- ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
     geom_point()
-```
 
-It's hard to know if the clusters near 50000 bps in width are problematic.
-
-In normal I drop those with > 10000 bps.  
-
-
-```{r drop-bigwidths}
 TumorM.dt <- TumorM.dt[width < 50000,]
-
-ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+p4<- ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
     geom_point()
-```
-Let's find intervals conserved in Normal (tidy), and then identify Tumor M intervals that overlap Normal intervals vs distinct.
 
-Actually, I'm going to want to merge intervals that are near each other. Let's still tidy the normal sample intervals first.
+(p1 + p2)/(p3 + p4)
+```
+
+It's hard to know if the clusters near 50000 bps in width are problematic. If I re-cluster again, it filters more aggressively and will drop the interval with the most CpGs and I already visually inspected that one and decided the data are good quality. I will filter on 50kb here to retain the interval with the largest number of CpGs (bottom left figure). 
+
+Let's find intervals conserved in Normal (tidy them), and then identify Tumor M intervals that overlap Normal intervals vs distinct.
 
 ### Normal-Normal (JN,IN)
 ```{r consv-intervals-nn}
@@ -549,36 +537,35 @@ nn.dt[ n_CpG == max(n_CpG),]
 
 Plot the region with the most CpGs.
 ```{r plot1-region2}
-plot_region(pos1 = 8117738, posn = 8127638)
+plot_region(pos1 = 82014514, posn = 82032430)
 ```
 
+Yes, this interval does appear very conserved in normal tissue.
 
+Let's repeat the analysis performed on tumor M to identify outlier intervals to drop from analysis.
 ```{r}
-ggplot(nn.dt, aes( x = n_CpG, y = width)) +
-    geom_point()
-```
+p1 <- ggplot(nn.dt, aes( x = n_CpG, y = width)) +
+      geom_point()
 
-Use cluster analysis to identify outliers.
-```{r}
 set.seed(30)
 kmgps <- stats::kmeans(nn.dt[,.(n_CpG,width)],centers=2,nstart = 200)
-ggplot(nn.dt, aes( x = n_CpG, y = width, color = factor(kmgps$cluster))) +
+gp <- factor(kmgps$cluster)
+p2 <- ggplot(nn.dt, aes( x = n_CpG, y = width, color = gp)) +
     geom_point()
+
 clustertokeep <- which(kmgps$size==max(kmgps$size)) 
 nn.dt <- nn.dt[kmgps$cluster==clustertokeep,]
-```
-
-Should I add another filter? I can drop 25\% of intervals if I require > 9 CpGs (~20,000 remaining).
-
-```{r}
-#nn.dt.f <- nn.dt[ n_CpG > 9,]
-ggplot(nn.dt, aes( x = n_CpG, y = width)) +
+p3 <- ggplot(nn.dt, aes( x = n_CpG, y = width)) +
     geom_point()
+
+(p1+p2)/p3
 ```
 
+Should I add another filter? Re-clustering does not pick more outliers, but splits the intervals into 2 groups. If I require >9 CpGs (instead of 4+), I can drop 25\% of intervals (~20,000 remaining).  I'll be focusing on the large intervals later, making this decision irrelevant.
 
-Let's overlap TumorM with normal-normal.
-```{r overlap}
+## Overlap conserved intervals: Tumor M  &  JN-IN (normal) 
+
+```{r overlap, echo=FALSE}
 TumorM.gr <- GRanges(seqnames=TumorM.dt$seqnames,
                      IRanges(start = TumorM.dt$start,end = TumorM.dt$end))
 values(TumorM.gr) <- DataFrame(id = TumorM.dt$intIDf,
@@ -591,40 +578,120 @@ nn.gr <- GRanges(seqnames=nn.dt$seqnames,
 values(nn.gr) <- DataFrame(id = nn.dt$intIDf,
                                 apwd = nn.dt$AvB.pwd,
                                 ncpg = nn.dt$n_CpG)
+```
 
-
+```{r}
 TumorMonly <- subsetByOverlaps(TumorM.gr, nn.gr, invert = TRUE)
 commonRegions <- subsetByOverlaps(TumorM.gr, nn.gr)
 ```
 
+Specifically Tumor M intervals: `r length(TumorMonly)`.  
+Distribution of widths: `r summary(width(TumorMonly))`
 
+Tumor M & Normal overlapped intervals: `r length(commonRegions)`
+Distribution of widths: `r summary(width(commonRegions))`
+
+Very Few intervals are Tumor M specific.  Let's add this information back to our scatterplot and pick an interval that is tumor M specific.
 ```{r}
-print("Specifically Tumor M intervals:")
-length(TumorMonly)
-print("Distribution of widths:")
-summary(width(TumorMonly))
-print("Tumor M & Normal overlapped intervals:")
-length(commonRegions)
-print("Distribution of widths:")
-summary(width(commonRegions))
+common_idxM <- findOverlaps(TumorM.gr, nn.gr)
+idxMonly <- ifelse(!is.element(1:nrow(TumorM.dt),queryHits(common_idxM)),1,0)
+ggplot(TumorM.dt, aes( x = n_CpG, y = width)) +
+    geom_point() + facet_wrap( ~ factor(idxMonly))
 ```
 
-Do conserved intervals overlap p53?  I think they should.
-
 ```{r}
-tp53 <- GRanges(seqnames="chr17",
-                     IRanges(start = 7661779,end = 7687538))
-subsetByOverlaps(commonRegions,tp53)
+TumorM.dt[idxMonly ==1 & n_CpG >100]
 ```
 
-Yes. Let's analyze distances between intervals to decide on collapsing intervals into larger regions. Then we can go back and compute average PWD in intervals.
+```{r plot1-region4}
+p1 <- plot_region(pos1 = 48549520, posn = 48553578)
+p2 <- plot_region(pos1 = 48581771	, posn = 48584931)
+p3 <- plot_region(pos1 = 81118265, posn = 81120542)
+
+(p1 + p2)/p3
+```
+
+That figure on the bottom is interesting!
+
+### Distances between intervals
+
+What are distances between intervals? 
 
 ```{r}
 summary(distance(TumorMonly[-length(TumorMonly)], TumorMonly[-1]))
 summary(distance(commonRegions[-length(commonRegions)], commonRegions[-1]))
 ```
-Actually, let's go back and use less stringent cutoff for conservation and see if that will reduce the number of intervals. 
+Some are pretty darn close to each other so I could combine nearby intervals. Then I have to decide how close should they be to combine them? Instead, since I'm going to increase the interval to a 1 Mb region, I think I'll just keep these as they are, and see how many of these intervals are covered by the 1 Mb regions I select.
 
+## Pick Top Conserved Intervals
+
+Let me pick the interval with the most CpGs, and see how many other intervals are covered if I expand the width to 1Mb.
+```{r}
+si <- seqinfo(BSgenome.Hsapiens.UCSC.hg38)
+# region with max nCpG
+maxncpg_idx <- which(values(commonRegions)$ncpg == max(values(commonRegions)$ncpg))
+gr <- commonRegions[maxncpg_idx]
+gr_big <- resize(gr, 1000000, fix = "center")
+
+# clip to chromosome bounds
+seqlevels(gr_big) <- seqlevels(si)   # align seqlevels
+seqlengths(gr_big) <- seqlengths(si)
+gr_big <- trim(gr_big)
+
+sum(countOverlaps(commonRegions,gr_big))
+```
+
+Here is a picture of which intervals were covered by the 1 Mb region. Only 1 of the intervals with lots of CpGs, and then smaller intervals.
+```{r plot-covered-intervals, echo=FALSE}
+overlap_int <- countOverlaps(commonRegions, gr_big)
+cR.dt <- as.data.table(values(commonRegions))
+cR.dt$width <- width(commonRegions)
+ggplot(cR.dt, aes( x = ncpg, y = width)) +
+    geom_point() + 
+    ggtitle("Conserved Intervals covered by 1 Mb region (1=Yes, 0 = No)") +
+    facet_wrap( ~ factor(overlap_int))
+```
+
+Now take the intervals with more than 500 CpGs, expand them, and see if any of the intervals overlap each other.
+```{r, warning=FALSE}
+gr <- commonRegions[values(commonRegions)$ncpg > 500]
+
+gr_big <- resize(gr, 1000000, fix = "center")
+# clip to chromosome bounds
+seqlevels(gr_big) <- seqlevels(si)   # align seqlevels
+seqlengths(gr_big) <- seqlengths(si)
+gr_big <- trim(gr_big)
+```
+
+`r length(gr)` intervals have more than 500 CpGs.
+
+What is the average PWD for these 40 intervals? All have a minimum 500 CpGs.
+```{r }
+summary(values(gr)$apwd)
+```
+
+
+```{r}
+reduce_big <- reduce(gr_big)
+reduce_big
+width(reduce_big)
+```
+
+Nice. Write this to a file.
+```{r}
+rtracklayer::export(reduce_big, "data/chr17consvIntervals.bed", format = "BED")
+```
+
+
+How many of the 22k+ intervals does this cover?  This is 14Mb out of 83Mb on chr17. 
+
+```{r, echo=FALSE}
+f0 <- findOverlaps(commonRegions,reduce_big)
+
+pp <- length(unique(queryHits(f0)))/length(commonRegions)
+```
+
+`r length(unique(queryHits(f0)))` intervals (`r round(pp*100,2)` \%).
 
 ```{r sI}
 sessionInfo()

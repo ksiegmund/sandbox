@@ -145,8 +145,10 @@ A quick look at sequencing depth of the Y chromosomes suggests JN, IN are female
 
 There are ~1.08x10^6 CpG sites in chr17. Let's start with that one. Intervals on end are kept if we have more than 5 reads regardless of whether interval only has data from 1/2 the intervals.  Chr17 contains TP53. 
 
-I require that the tumor and normal are measured on the same CpG sites, to control for different sequencing depth of some tumors.  It would be faster to process these separately without this requirement. I could just process all pairs of samples and merge CpGs from the processed data before calling intervals. Then I won't be re-calling normal PWDs each time.
+I require that the tumor and normal are measured on the same CpG sites, to control for different sequencing depth of some tumors.  Samples are processed individually and CpGs are merged for comparisons of PWDs before calling intervals. 
 ```{r get-list-of-datatables-with-smoothed-pwd}
+pickchr <- "chr17"
+
 nn.pairs.lst <- list(
   c("JN","IN"),
   c("JN","EN"),
@@ -157,9 +159,9 @@ tumor.pairs.lst <- list(
   c("MA","MB"),
   c("HA","HB")
 )
+```
 
-pickchr <- "chr17"
-
+```{r process, echo=FALSE}
 nn.dt_list <- list()
 for (i in 1:length(nn.pairs.lst)) {
           pair <- nn.pairs.lst[[i]]
@@ -188,7 +190,7 @@ lapply(tumor.dt_list,nrow)
 ```
 
 
-```{r merge-dts-before-interval-detection}
+```{r merge-dts-before-interval-detection, echo=FALSE}
 # merge paired samples
 dtc <- merge(
             tumor.dt_list[[1]][, .(seqnames, start, end, 
@@ -215,10 +217,10 @@ names(dtc) <- ndt
 There are `r nrow(dtc)` CpGs measured in each paired sample.
 
 
-```{r symmetry}
-p1 <- ggplot(dtc, aes(x=MA_v_MB.diff)) + geom_histogram()
-p2 <- ggplot(dtc, aes(x=JN_v_IN.diff)) + geom_histogram()
-p1 + p2
+```{r symmetry, echo=FALSE}
+#p1 <- ggplot(dtc, aes(x=MA_v_MB.diff)) + geom_histogram()
+#p2 <- ggplot(dtc, aes(x=JN_v_IN.diff)) + geom_histogram()
+#p1 + p2
 ```
 
 
@@ -254,11 +256,11 @@ rm(tumor.dtcomb,nn.dtcomb)
 ```
   
 ```{r}
-#pv <- ggplot(dtcomb, aes(x=source, y = pwd, fill = source)) +
-#       geom_violin() +
+pv <- ggplot(dtcomb, aes(x=source, y = pwd, fill = source)) +
+       geom_violin() +
   # violin plot with median points
-#        stat_summary(fun=median, geom="point", shape=23, size=2) +
-#        ylim(0,.5) 
+        stat_summary(fun=median, geom="point", shape=23, size=2) +
+        ylim(0,.5) 
 pv + geom_hline(yintercept = 0.05, linetype = "dashed")
 ```
 
@@ -363,6 +365,7 @@ p4<- ggplot(dtc[125001:130000], aes(x = start, y = MA_v_MB.pwd)) +
 ```{r, echo=FALSE, warning=FALSE}
 ((p1 | p2) / (p3 | p4))
 ```
+
 P53 is marked in red: 7,661,779-7,687,538 (25,760 bp)
 
 

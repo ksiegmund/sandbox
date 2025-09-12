@@ -140,7 +140,8 @@ combine_paired_samples <- function (s1_smoothed_beta,
 pickchr <- "chr17"
 
 nn.lst <- c("JN","IN","EN")
-tumor.lst <- c("MA","MB","HA","HB","IA","IB","EA","EB")
+tumor.lst <- c("MA","MB","HA","HB","IA","IB","EA","EB","DA","DB",
+               "FA","FB","KA","KB","PA","PB","SA","SB","XA","XB")
 
 nn.pairs.lst <- list(
   c("JN","IN"),
@@ -155,11 +156,17 @@ tumor.pairs.lst <- list(
   c("MA","MB"),
   c("HA","HB"),
   c("IA","IB"),
-  c("EA","EB")
+  c("EA","EB"),
+  c("DA","DB"),
+  c("FA","FB"),
+  c("KA","KB"),
+  c("PA","PB"),
+  c("XA","XB"),
+  c("SA","SB")
 )
 res <- sapply(tumor.pairs.lst, function(x) paste(x, collapse = "_v_"))
 names(tumor.pairs.lst) <- res
-nn.pairs.lst
+#nn.pairs.lst
 #tumor.pairs.lst
 ```
 
@@ -183,6 +190,7 @@ for (i in 1:length(tumor.lst)) {
 names(tumor.dt_list) <- tumor.lst
 ```
 
+Wow. This was super inefficient. What an idiot.
 ```{r summarize-chr17-stats}
 alldt <- c(nn.lst,tumor.lst)
 
@@ -216,6 +224,8 @@ chr17_stats <-
 chr17_stats
 ```
 
+Sample pair SA,SB has very imbalanced sequencing depth. I'm not 
+
 ```{r combine-pair-samples, echo=FALSE}
 nnpair.dt_list <- list()
 for (i in 1:length(nn.pairs.lst)) {
@@ -243,32 +253,7 @@ lapply(tumorpair.dt_list,nrow)
 ```
 
 
-```{r merge-dts-before-interval-detection, echo=FALSE}
-# merge paired samples
-dtc <- merge(
-            tumorpair.dt_list[[1]][, .(seqnames, start, end, 
-                    pair1.pwd = pwd,
-                    pair1.avgdepth_tot = avgdepth_tot,
-                    pair1.avgb = avgb)],
-            nnpair.dt_list[[1]][, .(seqnames, start, end, 
-                    pair2.pwd = pwd, 
-                    pair2.avgdepth_tot = avgdepth_tot,
-                    pair2.avgb = avgb)],
-
-            by.x = c("seqnames", "start", "end"),
-            by.y = c("seqnames", "start", "end")
-            )
-       
-ndt <- names(dtc)  
-ndt <- sub("pair1",names(tumorpair.dt_list[1]),ndt)
-ndt <- sub("pair2",names(nnpair.dt_list[1]),ndt)
-names(dtc) <- ndt
-```
-
-There are `r nrow(dtc)` CpGs measured in each paired sample.
-
-
-```{r merge-more-dts, echo=FALSE}
+```{r merge-all-dts, echo=FALSE}
 dtc <- merge(
             nnpair.dt_list[[1]][, .(seqnames, start, end, 
                     pair1.pwd = pwd,
@@ -304,72 +289,28 @@ ndt <- sub("newpair",names(nnpair.dt_list[3]),ndt)
 names(dtc3) <- ndt
 rm(dtc)
 
-# again
-dtc4 <- merge(
-            dtc3,
-            tumorpair.dt_list[[1]][, .(seqnames, start, end, 
-                    newpair.pwd = pwd, 
-                    newpair.avgdepth_tot = avgdepth_tot,
-                    newpair.avgb = avgb)],
-            by.x = c("seqnames", "start", "end"),
-            by.y = c("seqnames", "start", "end")
-            )
-       
-ndt <- names(dtc4)  
-ndt <- sub("newpair",names(tumorpair.dt_list[1]),ndt)
-names(dtc4) <- ndt
+dtc7 <- dtc3
 rm(dtc3)
-
-# again
-dtc5 <- merge(
-            dtc4,
-            tumorpair.dt_list[[2]][, .(seqnames, start, end, 
+# Loop through adding tumor pairs.
+for (i in 1:length(tumorpair.dt_list)) {
+dtnew <- merge(
+            dtc7,
+            tumorpair.dt_list[[i]][, .(seqnames, start, end, 
                     newpair.pwd = pwd, 
                     newpair.avgdepth_tot = avgdepth_tot,
                     newpair.avgb = avgb)],
             by.x = c("seqnames", "start", "end"),
             by.y = c("seqnames", "start", "end")
             )
-       
-ndt <- names(dtc5)  
-ndt <- sub("newpair",names(tumorpair.dt_list[2]),ndt)
-names(dtc5) <- ndt
-rm(dtc4)
-
-# again
-dtc6 <- merge(
-            dtc5,
-            tumorpair.dt_list[[3]][, .(seqnames, start, end, 
-                    newpair.pwd = pwd, 
-                    newpair.avgdepth_tot = avgdepth_tot,
-                    newpair.avgb = avgb)],
-            by.x = c("seqnames", "start", "end"),
-            by.y = c("seqnames", "start", "end")
-            )
-       
-ndt <- names(dtc6)  
-ndt <- sub("newpair",names(tumorpair.dt_list[3]),ndt)
-names(dtc6) <- ndt
-rm(dtc5)
-
-# again
-dtc7 <- merge(
-            dtc6,
-            tumorpair.dt_list[[4]][, .(seqnames, start, end, 
-                    newpair.pwd = pwd, 
-                    newpair.avgdepth_tot = avgdepth_tot,
-                    newpair.avgb = avgb)],
-            by.x = c("seqnames", "start", "end"),
-            by.y = c("seqnames", "start", "end")
-            )
-       
-ndt <- names(dtc7)  
-ndt <- sub("newpair",names(tumorpair.dt_list[4]),ndt)
-names(dtc7) <- ndt
-rm(dtc6)
+ndt <- names(dtnew)  
+ndt <- sub("newpair",names(tumorpair.dt_list[i]),ndt)
+names(dtnew) <- ndt
+dtc7 <- dtnew
+print(nrow(dtc7))
+}
 ```
 
-`r nrow(dtc7)` CpGs are retained after merging 7 PWD data sets. 
+`r nrow(dtc7)` CpGs are retained after merging `r 3+length(tumorpair.dt_list)` PWD data sets. 
 
 ### Data visualizations
 
@@ -815,6 +756,11 @@ plot_region(dt= all.dtcomb[is.element(source,c("EA","EB","EN")),],
             pos1 = 48609950, posn = 48650197,
             titletext = "Conserved region in (MA,MB)"	)
 ```
+
+I have all PWDs for all 13 paired samples entered into the single data.table dtc7.
+
+This is where I can study the effect of different PWD cutoffs on the number of intervals identified.
+
 
 ```{r sI}
 sessionInfo()

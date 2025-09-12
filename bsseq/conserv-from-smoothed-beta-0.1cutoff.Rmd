@@ -18,6 +18,7 @@ library(rtracklayer)
 library(dplyr)
 library(GenomeInfoDb)
 library(BSgenome.Hsapiens.UCSC.hg38)
+library(openxlsx)
 ```
 
 ### Background
@@ -35,7 +36,6 @@ I will search for conservation in windows of 4+ CpGs, > 200bps, CpG PWD (for smo
 
 ```{r data-files, cache=TRUE}
 readdir <- c("~kims/Google Drive/My Drive/Data/hpc-archive/wg_bed/bed_files")
-samplename <- c("MA","MB","IN","JN")
 ```
 
 
@@ -49,15 +49,18 @@ excludelist <- import("data/ENCFF356LFX.bed.gz")
 
 ```{r summarize-each-file, echo=FALSE}
 read_bedfile <- 
-      function(sample = "MA") {
+      function(sample = "MA", keepchr="all") {
           fin <- fread(file.path(readdir,paste0(sample,".bed")))
   
           setnames(fin, c("chr","start","end","beta","depth","m","u"))
-          # filter on assembly
-          desired_chromosomes <- paste0("chr",c(as.character(1:22),"X","Y"))
+          
+         if (keepchr=="all") {
+              # filter on assembly
+              desired_chromosomes <- paste0("chr",c(as.character(1:22),"X","Y"))
+          } else desired_chromosomes <- keepchr
           fin <- fin[chr %in% desired_chromosomes]
+          
           # filter on exclude list
-  
           betav <- GRanges(seqnames = fin$chr,
                             IRanges(start = fin$start,end = fin$end))
           values(betav) <- DataFrame(m = fin$m, depth = fin$depth)
@@ -115,10 +118,10 @@ combine_paired_samples <- function (s1,s2, chr = thischr, window_size = 500) {
 #  chr <- "chr18"
 #  window_size <- 500
   
-        s1.gr <- read_bedfile(sample=s1)
+        s1.gr <- read_bedfile(sample=s1, keepchr = chr)
         s1_smoothed_beta <- calc_smoothed_beta(s1.gr,chr=chr,window_size=window_size)
  
-        s2.gr <- read_bedfile(sample=s2)
+        s2.gr <- read_bedfile(sample=s2, keepchr = chr)
         s2_smoothed_beta <- calc_smoothed_beta(s2.gr,chr=chr,window_size=window_size)
 
         setkey(s1_smoothed_beta, seqnames, start, end)
@@ -430,6 +433,26 @@ find_Intervals_of_conserv <- function(dtc,ncg=4, minwidth=200, pwd = "MA_v_MB.pw
 }
 ```
 
+### Effect of PWD cutoff on Number of intervals
+```{r}
+TumorM.dt.05<- find_Intervals_of_conserv(dtc,pwd = "MA_v_MB.pwd",pwd.consv.cutoff = 0.05)
+TumorM.dt.1<- find_Intervals_of_conserv(dtc,pwd = "MA_v_MB.pwd",pwd.consv.cutoff = 0.1)
+
+nn.dt.05<- find_Intervals_of_conserv(dtc,pwd = "JN_v_IN.pwd",pwd.consv.cutoff = 0.05)
+nn.dt.1<- find_Intervals_of_conserv(dtc,pwd = "JN_v_IN.pwd",pwd.consv.cutoff = 0.1)
+```
+
+```{r}
+nrow(TumorM.dt.05)
+nrow(TumorM.dt.1)
+nrow(nn.dt.05)
+nrow(nn.dt.1)
+```
+
+Fewer intervals are found by the large PWD before filtering, suggesting that intervals from the strict PWD cutoff definition are merged. We also see a decreased number after filtering. These numbers are similar between the tumor and normal tissue. Does this mean the tumor is young and lacks PWD aging?  We can look at Tumor E for larger PWDs, but do those reflect conservation or are the data noisy?
+
+For this one, I like that Tumor M has more conserved regions than normal tissue under strict PWD, which reflects good conservation in paired sample. I also like that for the more relaxed PWD it has fewer conserved regions than normal, maybe reflecting cancer heterogeneity?
+
 ### Tumor M
 ```{r consv-intervals}
 TumorM.dt<- find_Intervals_of_conserv(dtc,pwd = "MA_v_MB.pwd")
@@ -438,13 +461,11 @@ There are still a lot of intervals to study using this definition. Should I requ
 
 Let's find the interval with the most CpGs.
 ```{r mostCpGs}
-TumorM.dt[ n_CpG == max(n_CpG),]
+temp <- TumorM.dt[ n_CpG == max(n_CpG),]
+temp
 ```
 
-Now let's find the widest interval.
-```{r widest}
-TumorM.dt[ width == max(width),]
-```
+That is a big interval.
 
 ## Plot (smoothed) Beta Values for conserved regions
 
@@ -488,15 +509,19 @@ plot_region <- function(pos1=81510412, posn = 81515609) {
 
 Plot the region with the most CpGs.
 ```{r plot1-region1}
-plot_region(pos1 = 48609950, posn = 48650197	)
+plot_region(pos1 = temp$start, posn = temp$end)
 ```
 
-This data looks good.
+This data looks good. The methylation is conserved in tumor.
 
-What about the very long region of just 8 CpGs?
+What about the widest interval?
+```{r widest}
+temp <- TumorM.dt[ width == max(width),]
+temp
+```
 
 ```{r plot-region2}
-plot_region(pos1 = 36175775, posn = 36586344)
+plot_region(pos1 = temp$start, posn = temp$end)
 ```
 
 This looks like some irregular sequencing data.  How many such intervals are there (wide with few CpGs)?  Apply cluster analysis to identify outlier intervals that are extremely wide and omit them.
@@ -532,12 +557,13 @@ nn.dt<- find_Intervals_of_conserv(dtc,pwd = "JN_v_IN.pwd")
 ```
 
 ```{r mostCpGs-nn}
-nn.dt[ n_CpG == max(n_CpG),]
+temp <- nn.dt[ n_CpG == max(n_CpG),]
+temp
 ```
 
 Plot the region with the most CpGs.
 ```{r plot1-region2}
-plot_region(pos1 = 82014514, posn = 82032430)
+plot_region(pos1 = temp$start, posn = temp$end)
 ```
 
 Yes, this interval does appear very conserved in normal tissue.
@@ -561,24 +587,65 @@ p3 <- ggplot(nn.dt, aes( x = n_CpG, y = width)) +
 (p1+p2)/p3
 ```
 
-Should I add another filter? Re-clustering does not pick more outliers, but splits the intervals into 2 groups. If I require >9 CpGs (instead of 4+), I can drop 25\% of intervals (~20,000 remaining).  I'll be focusing on the large intervals later, making this decision irrelevant.
+Should I add another filter? Re-clustering does not pick more outliers, but splits the intervals into 2 groups. If I require >9 CpGs (instead of 4+), I can drop 25\% of intervals (~20,000 remaining).  Let's just give these intervals to Darryl, and we can decide later how to fine tune the list.
 
-## Overlap conserved intervals: Tumor M  &  JN-IN (normal) 
+## Output 1Mb regions for Conserved regions
 
-```{r overlap, echo=FALSE}
+```{r makegr, echo=FALSE}
 TumorM.gr <- GRanges(seqnames=TumorM.dt$seqnames,
                      IRanges(start = TumorM.dt$start,end = TumorM.dt$end))
 values(TumorM.gr) <- DataFrame(id = TumorM.dt$intIDf,
                                 apwd = TumorM.dt$AvB.pwd,
-                                ncpg = TumorM.dt$n_CpG)
+                                ncpg = TumorM.dt$n_CpG,
+                                length = width(TumorM.gr))
 
 
 nn.gr <- GRanges(seqnames=nn.dt$seqnames,
                      IRanges(start = nn.dt$start,end = nn.dt$end))
 values(nn.gr) <- DataFrame(id = nn.dt$intIDf,
                                 apwd = nn.dt$AvB.pwd,
-                                ncpg = nn.dt$n_CpG)
+                                ncpg = nn.dt$n_CpG,
+                                length = width(nn.gr))
 ```
+
+```{r, warning=FALSE}
+TumorM.gr_big <- resize(TumorM.gr, 1000000, fix = "center")
+nn.gr_big <- resize(nn.gr, 1000000, fix = "center")
+# clip to chromosome bounds
+#seqlevels(gr_big) <- seqlevels(si)   # align seqlevels
+#seqlengths(gr_big) <- seqlengths(si)
+#gr_big <- trim(gr_big)
+```
+
+Does this cover the entire chromosome?
+```{r}
+reduce_nnbig <- reduce(nn.gr_big)
+reduce_nnbig
+```
+
+According to ChatGPT the centromere spans:
+Start: 23,610,000
+End: 24,301,000
+
+
+```{r output}
+rtracklayer::export(nn.gr_big, "data/chr17consvIn-JNIN.bed", format = "BED")
+rtracklayer::export(TumorM.gr_big, "data/chr17consvIn-MAMB.bed", format = "BED")
+
+nn.dt_big <- as.data.table(nn.gr_big)
+TumorM.dt_big <- as.data.table(TumorM.gr_big)
+
+wb <- createWorkbook()
+addWorksheet(wb, "JN_v_IN")
+addWorksheet(wb, "Tumor_MA_v_MB")
+
+writeData(wb, "JN_v_IN", nn.dt_big)
+writeData(wb, "Tumor_MA_v_MB", TumorM.dt_big)
+
+saveWorkbook(wb, "data/Chr17ConservedIntervals.xlsx", overwrite = TRUE)
+```
+
+## Overlap conserved intervals: Tumor M  &  JN-IN (normal) 
 
 ```{r}
 TumorMonly <- subsetByOverlaps(TumorM.gr, nn.gr, invert = TRUE)

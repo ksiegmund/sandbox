@@ -1,0 +1,238 @@
+---
+title: "Make Gene TSS GRange Object"
+author: "ks"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(GenomicFeatures)
+library(AnnotationDbi)
+library(rtracklayer)
+#BiocManager::install("TxDb.Hsapiens.UCSC.hg38.knownGene")
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(data.table)
+library(biomaRt)
+```
+
+
+
+Let's compare this to the files Darryl downloaded:
+
+```{r}
+adir <- c("~kims/github/sandbox/bsseq/data/annotation")
+temp <- fread(file.path(adir,"ucsc_hg38_gene_known_genecodeV48"))
+temp
+```
+
+```{r}
+length(unique(temp$chrom))
+length(unique(temp$`#name`))
+```
+
+Hmmmm. Darryl's file has 10 more rows than when I download: TxDb.Hsapiens.UCSC.hg38.knownGene
+
+
+What if I look at his file using refseq names?
+
+```{r}
+temprefseq <- fread(file.path(adir,"ucsc_hg38_gene_known_RefSeqALL.txt"))
+temprefseq
+```
+
+This is half the size (197654 rows not 412k).
+
+It includes alt chromosomes
+```{r}
+length(unique(temprefseq$chrom))
+```
+How many rows if I delete alt chroms?
+```{r}
+desired_chromosomes <- paste0("chr",c(as.character(1:22),"X","Y"))
+temprefseq <- temprefseq[chrom %in% desired_chromosomes]
+nrow(temprefseq)
+```
+
+Can I find this directly using R?  I want to download RefSeq knowngene hg38 data from ucsc in R
+
+```{r}
+gtf_url <- "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.ncbiRefSeq.gtf.gz"
+refseq_gtf <- rtracklayer::import(gtf_url)
+```
+```{r}
+#desired_chromosomes <- paste0("chr", c(1:22, "X", "Y"))
+#gr_std <- refseq_gtf[seqnames(refseq_gtf) %in% desired_chromosomes]
+#seqlevels(gr_std) <- seqlevelsInUse(gr_std)
+#seqlevels(gr_std)
+gr_std <- sort(refseq_gtf)
+
+refseq_gtf <- gr_std[values(gr_std)$type=="transcript"]
+refseq_gtf
+```
+
+This time mine is larger.  How many names overlap?
+```{r}
+is.element(c(2,3,4,6,7),c(3,4,9,10))
+table(is.element(temprefseq$name,
+           values(refseq_gtf)$transcript_id))
+mean(is.element(temprefseq$name,
+           values(refseq_gtf)$transcript_id))
+```
+90% of Darryl's transcript IDs are in my data set, but mine is larger.
+
+Here's another way to get Tx.
+
+Get transcription start sites:
+From ChatGPT
+```{r tss}
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+
+transcripts_gr <- transcripts(txdb)
+tss_gr <- resize(transcripts_gr, width = 1, fix = "start")
+transcripts_gr
+head(start(tss_gr))
+tail(start(tss_gr))
+```
+
+Take darryl's first file, and try renaming transcripts from Ensemble to RefSeq mrna names.
+```{r}
+temp
+```
+
+```{r}
+# Connect to Ensembl
+ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+
+# Example: your Ensembl gene IDs
+ensembl_id <- temp$`#name`  
+
+# Get corresponding RefSeq IDs
+refseq_mapping <- getBM(
+  attributes = c(
+    "ensembl_transcript_id_version", # The ENST ID you provide
+    "refseq_mrna"                    # The RefSeq mRNA ID (NM_...)
+  ),
+  filters = "ensembl_transcript_id_version",
+  values = ensembl_id,
+  mart = ensembl
+)
+refseq_mapping
+```
+
+Interesting that this is longer than the original list.  I think they warned us this was possible.
+```{r}
+length(unique(temp$`#name`))
+length(ensembl_id)
+length(unique(refseq_mapping$ensembl_transcript_id_version))
+nrow(refseq_mapping)
+```
+
+Now merge these names with temp, and see if we get his Refseq data out...
+```{r}
+
+```
+
+
+
+
+Start() picked the upstream location depending on the strand information.
+
+```{r get-gene-level-tss}
+# Map transcript IDs to gene IDs
+gene_tx_map <- AnnotationDbi::select(txdb, keys = as.character(transcripts_gr$tx_id), 
+                                     columns = "GENEID", keytype = "TXID")
+# Add gene IDs to the TSS GRanges object
+tss_gr$gene_id <- gene_tx_map$GENEID[match(as.character(transcripts_gr$tx_id),
+                                           gene_tx_map$TXID)]
+
+#Drop rows with missing geneids
+tss_gr <- tss_gr[!is.na(tss_gr$gene_id)]
+length(tss_gr)
+```
+
+These are for all transcripts. I want to reduce them to genes.
+
+First, restrict to chromosomes 1-22, X, Y.  I only want to select TSSs that are
+on the primary assembly.
+```{r remove_alt_chr}
+desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
+# Assuming your GRanges object is called granges_obj
+tss_gr <- tss_gr[seqnames(tss_gr) %in% desired_chromosomes]
+length(tss_gr)
+```
+Now we'll reduce these to genes.
+
+```{r pick-gene-tss, cache=TRUE}
+# Split the TSS by gene
+tss_by_gene <- split(tss_gr, tss_gr$gene_id)
+
+# Find the correct TSS considering strand
+min_tss_by_gene <- lapply(tss_by_gene, function(gr) {
+                    
+                      positive_strand <- gr[strand(gr) == "+"]
+                      negative_strand <- gr[strand(gr) == "-"]
+  
+        # Get minimum for positive strand and maximum for negative strand
+        pos_tss <- if (length(positive_strand) > 0)   positive_strand[which.min(start(positive_strand))] else NULL
+        neg_tss <- if (length(negative_strand) > 0) negative_strand[which.max(start(negative_strand))] else NULL
+  
+        # Return Grange for object that isn't NULL
+        if (!is.null(pos_tss)) return(pos_tss)
+        if (!is.null(neg_tss)) return(neg_tss) 
+        })
+
+# Use unlist to combine the GRanges elements into a single GRanges object
+min_tss_gr <- unlist(GRangesList(min_tss_by_gene))
+
+# View the result
+min_tss_gr
+
+min_tss_gr <- keepSeqlevels(min_tss_gr, seqlevelsInUse(min_tss_gr), pruning.mode = "coarse")
+#table(seqnames(min_tss_gr))
+```
+
+## We have `r length(min_tss_gr)` gene TSS sites
+
+Is it correct to assume each gene is only on 1 strand? (I made that assumption)
+If I'm wrong, then I've saved the positive strand only.
+
+### `r sum(seqnames(min_tss_gr)=="chrX")` (`r round(mean(seqnames(min_tss_gr)=="chrX"),3)*100`\%) are on ChrX
+
+### `r sum(seqnames(min_tss_gr)=="chrY")` (`r round(mean(seqnames(min_tss_gr)=="chrY"),3)*100`\%) are on ChrY
+
+
+Let's note if the TSS is in a CpG island.
+```{r overlap-cgi, message=FALSE}
+rmarkdown::render("cpgi-regions.Rmd", quiet =TRUE)
+
+f1 <- findOverlaps(min_tss_gr,cgi_gr)
+f1
+values(min_tss_gr)$TSSinCGI <- 0
+values(min_tss_gr)$TSSinCGI[queryHits(f1)] <- 1
+table(values(min_tss_gr)$TSSinCGI)
+```
+
+### `r as.character(sum(values(min_tss_gr)$TSSinCGI))` (`r round(mean(values(min_tss_gr)$TSSinCGI),2)*100`\%) of the TSSs are in UCSC defined CpG islands.
+
+
+Clean levels of strand
+```{r}
+strand(min_tss_gr) <-  droplevels(strand(min_tss_gr))
+table(strand(min_tss_gr))
+```
+
+I have no idea why this doesn't work!
+
+```{r save-data}
+save(min_tss_gr,file="data/min_tss_gr.rda")
+```
+
+
+```{r sI}
+sessionInfo()
+```
+

@@ -1,7 +1,7 @@
 ---
-title: "Make Gene TSS GRange Object"
+title: "Gene annotations using Refseq"
 author: "ks"
-date: "2024-09-27"
+date: "2025-10-31"
 output: html_document
 ---
 
@@ -17,6 +17,8 @@ library(rtracklayer)
 library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 library(data.table)
 library(biomaRt)
+#BiocManager::install("GenomicFeatures")
+library(GenomicFeatures)
 ```
 
 
@@ -25,16 +27,111 @@ Let's compare this to the files Darryl downloaded:
 
 ```{r}
 adir <- c("~kims/github/sandbox/bsseq/data/annotation")
-temp <- fread(file.path(adir,"ucsc_hg38_gene_known_genecodeV48"))
-temp
+gencodev48 <- fread(file.path(adir,"ucsc_hg38_gene_known_genecodeV48"))
+gencodev48
 ```
 
 ```{r}
-length(unique(temp$chrom))
-length(unique(temp$`#name`))
+length(unique(gencodev48$`#name`))
 ```
 
-Hmmmm. Darryl's file has 10 more rows than when I download: TxDb.Hsapiens.UCSC.hg38.knownGene
+```{r tss}
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+txdb
+```
+```{r ntx}
+# Extract transcripts as a GRanges object
+tx_gr <- transcripts(txdb)
+tx_gr
+# how many tx?
+length(names(tx_gr))
+```
+
+Save chr1-22, X,Y and then subset to those with refseqid and hgnc
+
+```{r}
+desired_chromosomes <- paste0("chr",c(as.character(1:22), "X", "Y"))
+# Assuming your GRanges object is called granges_obj
+tx_gr <- tx_gr[seqnames(tx_gr) %in% desired_chromosomes]
+length(tx_gr)
+seqlevels(tx_gr) <- seqlevelsInUse(tx_gr)
+```
+
+Use biomaRt
+```{r}
+# Connect to Ensembl
+ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+
+searchAttributes(mart = ensembl, pattern = "hgnc")
+searchAttributes(mart = ensembl, pattern = "refseq")
+```
+
+
+ 
+```{r}
+# Example: your Ensembl gene IDs
+ensembl_id <- values(tx_gr)$tx_name  
+
+# Get corresponding RefSeq IDs
+hgnc_mapping <- getBM(
+  attributes = c(
+    "ensembl_transcript_id_version", # The ENST ID you provide
+    "hgnc_trans_name",               # hgnc transcript name
+    "hgnc_symbol",                     # hgnc symbol
+    "hgnc_id"
+  ),
+  filters = "ensembl_transcript_id_version",
+  values = ensembl_id,
+  mart = ensembl
+)
+hgnc_mapping
+
+refseq_mapping <- getBM(
+  attributes = c(
+    "ensembl_transcript_id_version", # The ENST ID you provide
+    "refseq_mrna",
+    "refseq_mrna_predicted",
+    "refseq_ncrna_predicted"
+  ),
+  filters = "ensembl_transcript_id_version",
+  values = ensembl_id,
+  mart = ensembl
+)
+refseq_mapping
+```
+
+
+```{r}
+tx_dt <- as.data.table(tx_gr)
+#tx_dt
+
+tx_annot <- 
+      merge(tx_dt,hgnc_mapping,
+      by.x="tx_name", by.y = "ensembl_transcript_id_version")
+tx_annot
+```
+
+I forgot to get coding start/end
+```{r}
+cds_by_tx <- cdsBy(txdb, by = "tx", use.names = TRUE)
+```
+
+Why is this shorter than the tx_name list itself?
+
+```{r}
+length(names(cds_by_tx))
+```
+
+```{r}
+midx <- which(!is.element(tx_annot$tx_name,names(cds_by_tx)))
+```
+I think it's missing singleton exon/genes
+
+```{r}
+#library(parallel)
+temp <- mclapply(cds_by_tx[1:500],length)
+```
+
 
 
 What if I look at his file using refseq names?
@@ -43,18 +140,19 @@ What if I look at his file using refseq names?
 temprefseq <- fread(file.path(adir,"ucsc_hg38_gene_known_RefSeqALL.txt"))
 temprefseq
 ```
-
 This is half the size (197654 rows not 412k).
+
+Look at Rows 2 & 3. The only difference is the end of 1 exon.  What does this look like in the larger dataset?
+```{r}
+gencodev48[chrom=="chr1" & txStart==67092164 ]
+
+temprefseq[chrom=="chr1" & txStart==67092164 ]
+```
+
 
 It includes alt chromosomes
 ```{r}
 length(unique(temprefseq$chrom))
-```
-How many rows if I delete alt chroms?
-```{r}
-desired_chromosomes <- paste0("chr",c(as.character(1:22),"X","Y"))
-temprefseq <- temprefseq[chrom %in% desired_chromosomes]
-nrow(temprefseq)
 ```
 
 Can I find this directly using R?  I want to download RefSeq knowngene hg38 data from ucsc in R
@@ -62,17 +160,16 @@ Can I find this directly using R?  I want to download RefSeq knowngene hg38 data
 ```{r}
 gtf_url <- "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.ncbiRefSeq.gtf.gz"
 refseq_gtf <- rtracklayer::import(gtf_url)
-```
-```{r}
-#desired_chromosomes <- paste0("chr", c(1:22, "X", "Y"))
-#gr_std <- refseq_gtf[seqnames(refseq_gtf) %in% desired_chromosomes]
-#seqlevels(gr_std) <- seqlevelsInUse(gr_std)
-#seqlevels(gr_std)
-gr_std <- sort(refseq_gtf)
-
-refseq_gtf <- gr_std[values(gr_std)$type=="transcript"]
+refseq_gtf <- refseq_gtf[values(refseq_gtf)$type=="transcript"]
+refseq_gtf <- sort(refseq_gtf)
 refseq_gtf
 ```
+
+```{r}
+refseq_gtf[start(refseq_gtf)==67092165]
+```
+
+Note: this has txStart End, but not cdsStart End.
 
 This time mine is larger.  How many names overlap?
 ```{r}
@@ -82,12 +179,130 @@ table(is.element(temprefseq$name,
 mean(is.element(temprefseq$name,
            values(refseq_gtf)$transcript_id))
 ```
-90% of Darryl's transcript IDs are in my data set, but mine is larger.
+91% of Darryl's transcript IDs are in my data set, but mine is larger.
 
-Here's another way to get Tx.
+
+Let's see what ChatGPT suggested to Darryl:
+Yep — you used UCSC RefSeq → HGNC via a mapping table (refGene.txt or refFlat.txt) and matched by geneSymbol or name2.
+You then merged with an HGNC complete set (hgnc_complete_set.txt) using symbol or alias_symbol.
+Usually done with awk or a short Python/NumPy lookup.
+
+
+```{r}
+gtf_url <- "http://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/refFlat.txt.gz"
+refF <- fread(gtf_url)
+
+names(refF) <- c("geneName","name","chrom","strand","txStart","txEnd","cdsStart","cdsEnd","exonCount","exonStarts","exonEnds")
+refF
+```
+
+refF.txt and refGene.txt.gz contain the same names and records.
+
+```{r}
+table(is.element(refF$geneName,temprefseq$name2))
+mean(is.element(refF$geneName,temprefseq$name2))
+```
+Most of these are in temprefseq, but there are extras that are not.
+
+
+ChatGPT was providing annotation, but not the new data appearing in Darryl's file: ucsc_hg38_gene_known_RefSeqALL.txt.
+
+How about some metadata files for V48 (https://www.gencodegenes.org/human/release_48.html)
+download:  gencode.v48.metadata.RefSeq.gz
+These give names, but don't have both tx and cds start/end positions.
+
+```{r}
+temp
+```
+
+Take darryl's first file, and try renaming transcripts from Ensemble to RefSeq mrna names.
+
+
+
+```{r}
+# Example: your Ensembl gene IDs
+ensembl_id <- gencodev48$`#name`  
+
+# Get corresponding RefSeq IDs
+hgnc_mapping <- getBM(
+  attributes = c(
+    "ensembl_transcript_id_version", # The ENST ID you provide
+    "hgnc_trans_name",               # hgnc transcript name
+    "hgnc_symbol",                     # hgnc symbol
+    "hgnc_id"
+  ),
+  filters = "ensembl_transcript_id_version",
+  values = ensembl_id,
+  mart = ensembl
+)
+hgnc_mapping
+
+refseq_mapping <- getBM(
+  attributes = c(
+    "ensembl_transcript_id_version", # The ENST ID you provide
+    "refseq_mrna",
+    "refseq_mrna_predicted",
+    "refseq_ncrna_predicted"
+  ),
+  filters = "ensembl_transcript_id_version",
+  values = ensembl_id,
+  mart = ensembl
+)
+refseq_mapping
+```
+When I map ensembl to refseq, I can get multiple predicted mrna for a single ensemble transcript. Does Darryl have multiple ensembl transcripts in his dataset? Let me look for duplicate mrnas.  I'll start with this one.
+
+```{r}
+gencodev48[`#name` == "ENST00000378486.8"]
+sn <- unlist(lapply(strsplit(temprefseq$name,"[.]"),pluck,1))
+temprefseq[ sn == "NM_001303013"]
+```
+
+Does darryl have refseq predicted?
+```{r}
+table(substr(temprefseq$name,1,2))
+```
+
+Yes.
+
+Let's find his duplicates
+```{r}
+table(table(temprefseq$name))
+```
+
+180086 are unique Refseq ids.
+One id has 47 replicates!
+```{r}
+which(table(temprefseq$name)==47)
+```
+
+```{r}
+temprefseq[name=="NM_001242867.2"]
+#temprefseq[name=="NM_006737.4"]
+#temprefseq[name=="NM_153443.5"]
+```
+
+
+```{r}
+length(unique(gencodev48$`#name`))
+length(ensembl_id)
+length(unique(hgnc_mapping$ensembl_transcript_id_version))
+nrow(hgnc_mapping)
+```
+
+Now merge these names with gencodev48, and see if we get his Refseq data out...
+```{r}
+
+```
+
+
+
+
+########
+## getting TSS flanking intervals
+########
 
 Get transcription start sites:
-From ChatGPT
 ```{r tss}
 txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 
@@ -97,47 +312,6 @@ transcripts_gr
 head(start(tss_gr))
 tail(start(tss_gr))
 ```
-
-Take darryl's first file, and try renaming transcripts from Ensemble to RefSeq mrna names.
-```{r}
-temp
-```
-
-```{r}
-# Connect to Ensembl
-ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
-
-# Example: your Ensembl gene IDs
-ensembl_id <- temp$`#name`  
-
-# Get corresponding RefSeq IDs
-refseq_mapping <- getBM(
-  attributes = c(
-    "ensembl_transcript_id_version", # The ENST ID you provide
-    "refseq_mrna"                    # The RefSeq mRNA ID (NM_...)
-  ),
-  filters = "ensembl_transcript_id_version",
-  values = ensembl_id,
-  mart = ensembl
-)
-refseq_mapping
-```
-
-Interesting that this is longer than the original list.  I think they warned us this was possible.
-```{r}
-length(unique(temp$`#name`))
-length(ensembl_id)
-length(unique(refseq_mapping$ensembl_transcript_id_version))
-nrow(refseq_mapping)
-```
-
-Now merge these names with temp, and see if we get his Refseq data out...
-```{r}
-
-```
-
-
-
 
 Start() picked the upstream location depending on the strand information.
 

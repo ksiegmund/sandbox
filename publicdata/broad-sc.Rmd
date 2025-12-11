@@ -7,7 +7,6 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-datadir <- c()
 ```
 
 ## Data source
@@ -21,7 +20,7 @@ https://singlecell.broadinstitute.org/single_cell/study/SCP259/intra-and-inter-c
 ```{r SCP259}
 # Install and load the Seurat package if you haven't already
 # install.packages("Seurat")
-#library(Seurat)
+library(Seurat)
 
 # 1. Define the paths to your three files
 # NOTE: Replace these with the actual paths on your system
@@ -44,7 +43,6 @@ head(counts_matrix)[1:5, 1:5]
 
 ## Read in metadata
 
-
 ```{r read-metadata}
 fn <- "/Users/kims/OneDrive - University of Southern California/data/plasticity/broad-sc/SCP259/metadata/all.meta2.txt"
 
@@ -62,6 +60,7 @@ setnames(meta_dt, names(header_dt))
 
 print(meta_dt)
 ```
+
 Subset meta data to epithelial cells, and count numbers of epithelial cell types. 
 ```{r}
 meta_epi <- meta_dt[match(colnames(counts_matrix),meta_dt$NAME),]

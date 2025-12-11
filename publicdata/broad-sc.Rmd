@@ -1,0 +1,218 @@
+---
+title: "Broad Single Cell data"
+author: "ks"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+datadir <- c()
+```
+
+## Data source
+
+https://singlecell.broadinstitute.org/single_cell
+
+Search by text: SCP259
+patient with UC (=ulcerative colitis)
+https://singlecell.broadinstitute.org/single_cell/study/SCP259/intra-and-inter-cellular-rewiring-of-the-human-colon-during-ulcerative-colitis#study-download
+
+```{r SCP259}
+# Install and load the Seurat package if you haven't already
+# install.packages("Seurat")
+#library(Seurat)
+
+# 1. Define the paths to your three files
+# NOTE: Replace these with the actual paths on your system
+mtx_path <- "/Users/kims/OneDrive - University of Southern California/data/plasticity/broad-sc/SCP259/expression/5cdc540d328cee7a2efc2348/gene_sorted-Epi.matrix.mtx"
+features_path <- "/Users/kims/OneDrive - University of Southern California/data/plasticity/broad-sc/SCP259/expression/5cdc540d328cee7a2efc2348/Epi.genes.tsv"
+barcodes_path <- "/Users/kims/OneDrive - University of Southern California/data/plasticity/broad-sc/SCP259/expression/5cdc540d328cee7a2efc2348/Epi.barcodes2.tsv"
+
+# 2. Read the files using ReadMtx()
+counts_matrix <- ReadMtx(
+  mtx = mtx_path,
+  cells = barcodes_path,
+  features = features_path,
+  feature.column = 1 
+)
+
+# 3. View the structure (should be a sparse matrix)
+dim(counts_matrix)
+head(counts_matrix)[1:5, 1:5]
+```
+
+## Read in metadata
+
+
+```{r read-metadata}
+fn <- "/Users/kims/OneDrive - University of Southern California/data/plasticity/broad-sc/SCP259/metadata/all.meta2.txt"
+
+
+# --- 2. Read the Header Row ---
+# Read only 1 row, ensuring 'header=TRUE' is respected
+header_dt <- fread(fn, nrows = 1, header = TRUE)
+
+# --- 3. Read the Data starting from the 3rd physical row ---
+meta_dt <- fread(fn, skip = 2, header = FALSE)
+
+# --- 4. Assign the Header and Combine ---
+# Set the column names of the data body using the names from the header
+setnames(meta_dt, names(header_dt))
+
+print(meta_dt)
+```
+Subset meta data to epithelial cells, and count numbers of epithelial cell types. 
+```{r}
+meta_epi <- meta_dt[match(colnames(counts_matrix),meta_dt$NAME),]
+dim(meta_epi)
+# check that I have the correct row order of meta_epi
+identical(meta_epi$NAME,colnames(counts_matrix))
+```
+
+```{r}
+table(meta_epi$Cluster)
+sum(table(meta_epi$Cluster))
+length(meta_epi$Cluster)
+```
+Interesting. The Cycling TA, TA 1 and TA 2 counts on the tSNE plot differ. Those are 14881 for all 3 categories. I'm going to think these are correct because the sum of all counts gives the correct total of 123006, and it would be very bizarre to get the same number of cells of different types (14881 three times).
+
+Check out other meta data columns.  Data are from 30 subjects (12 healthy, 18 UC).
+publication: https://www.cell.com/cell/fulltext/S0092-8674(19)30732-9
+```{r}
+length(unique(meta_epi$Subject))
+table(meta_epi$Subject,meta_epi$Health)
+table(meta_epi$Health)
+```
+
+50258 cells from healthy colon.
+
+I need to split the count matrix into a matrix of cells from healthy colons and a matrix of cells from UC patients.
+
+```{r}
+counts_healthy_subj <- counts_matrix[,meta_epi$Health=="Healthy"]
+dim(counts_healthy_subj)
+meta_epi_healthy_subj <- meta_epi[meta_epi$Health=="Healthy",]
+dim(meta_epi_healthy_subj)
+
+#counts_uc_subj <- counts_matrix[,meta_epi$Health!="Healthy"]
+#dim(counts_uc_subj)
+#meta_epi_uc_subj <- meta_epi[meta_epi$Health!="Healthy",]
+#dim(meta_epi_uc_subj)
+rm(counts_matrix)
+```
+
+Darryl's TP10k = counts / cells total counts * 10k
+
+Instead of sweep, the following might be faster: t(t(M) / col_sums)
+```{r}
+cs <- colSums(counts_healthy_subj)
+TP10k <- sweep(counts_healthy_subj, 2, cs, FUN = "/")*10000
+log1pTP10k_healthy <- log( 1 + TP10k)
+rm(TP10k)
+```
+This is darryl's log calculation.  Gemini says log_e is most common, but the original publication with this data used log_2. 
+
+Also, these counts are not batch corrected, and the paper mentions doing a batch correction for tSNE plots and PCA because subjects result in a batch effect.
+
+What are the proportions of the different epithelial cell types across the 12 subjects?
+```{r}
+tab <- table(meta_epi_healthy_subj$Cluster,meta_epi_healthy_subj$Subject)
+tab
+```
+
+```{r}
+round(sweep(tab, 2, colSums(tab), FUN = "/"),3)
+```
+
+For each cell type, estimate the mean expression from a random effects model with subject as a random effect. Now that I have log-transformed count data, should I use limma?  How many healthy cells were there?
+```{r}
+dim(counts_healthy_subj)
+```
+50k cells
+
+Let's compute the mean by cell type
+```{r}
+library(Matrix)
+# M and group_factor from the previous example
+
+# 1. Create the Grouping Matrix (G)
+# sparse.model.matrix creates the indicator matrix efficiently
+cell_type <- factor(meta_epi_healthy_subj$Cluster)
+G <- sparse.model.matrix(~ 0 + cell_type)
+colnames(G) <- levels(cell_type) # Name columns after the groups
+
+# 2. Calculate Column Sums for each group
+M_sum <- log1pTP10k_healthy %*% G
+
+# 3. Calculate Group Sizes
+group_sizes <- colSums(G)
+
+# 4. Normalize (Divide by group sizes)
+M_avg_manual <- sweep(M_sum, 2, group_sizes, FUN = "/")
+
+print(head(M_avg_manual[, 1:2]))
+```
+
+yes! This is darryl's file means_log1p_TP10k_by_celltype_Healthy.csv
+
+Now let's compute the mean by cell type adjusting for subject as a random effect
+```{r}
+cell_type_subj <- factor(paste(meta_epi_healthy_subj$Cluster,
+                                meta_epi_healthy_subj$Subject,sep="_"))
+G <- sparse.model.matrix(~ 0 + cell_type_subj)
+colnames(G) <- levels(cell_type_subj) # Name columns after the groups
+
+# 2. Calculate Column Sums for each group
+M_sum <- log1pTP10k_healthy %*% G
+
+# 3. Calculate Group Sizes
+group_sizes <- colSums(G)
+
+# 4. Normalize (Divide by group sizes)
+M_avg_manual <- sweep(M_sum, 2, group_sizes, FUN = "/")
+
+print(head(M_avg_manual[, 1:2]))
+```
+
+Average by subject
+```{r}
+library(purrr)
+covars <- strsplit(colnames(M_avg_manual),"_")
+cell_type <- unlist(lapply(covars,pluck,1))
+table(cell_type)
+```
+```{r}
+cell_type <- factor(cell_type)
+G <- sparse.model.matrix(~ 0 + cell_type)
+colnames(G) <- levels(cell_type) # Name columns after the groups
+
+# 2. Calculate Column Sums for each group
+M_sum <- M_avg_manual %*% G
+
+# 3. Calculate Group Sizes
+group_sizes <- colSums(G)
+
+# 4. Normalize (Divide by group sizes)
+M_avg_cellbysubj <- sweep(M_sum, 2, group_sizes, FUN = "/")
+
+print(head(M_avg_cellbysubj[, 1:4]))
+```
+
+```{r}
+plot(M_avg_manual[,1],M_avg_cellbysubj[,1],main=colnames(M_avg_cellbysubj)[1])
+plot(M_avg_manual[,2],M_avg_cellbysubj[,2],main=colnames(M_avg_cellbysubj)[2])
+plot(M_avg_manual[,3],M_avg_cellbysubj[,3],main=colnames(M_avg_cellbysubj)[3])
+plot(M_avg_manual[,4],M_avg_cellbysubj[,4],main=colnames(M_avg_cellbysubj)[4])
+plot(M_avg_manual[,5],M_avg_cellbysubj[,5],main=colnames(M_avg_cellbysubj)[5])
+plot(M_avg_manual[,6],M_avg_cellbysubj[,6],main=colnames(M_avg_cellbysubj)[6])
+plot(M_avg_manual[,7],M_avg_cellbysubj[,7],main=colnames(M_avg_cellbysubj)[7])
+plot(M_avg_manual[,8],M_avg_cellbysubj[,8],main=colnames(M_avg_cellbysubj)[8])
+```
+
+
+Really want random effect model mean, not average with equal weights
+```{r}
+cell_type_counts <- table(cell_type_subj)
+```
+

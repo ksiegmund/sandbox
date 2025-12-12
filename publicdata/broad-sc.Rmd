@@ -8,6 +8,8 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(data.table)
+library(Matrix)
+library(purrr)
 ```
 
 ## Data source
@@ -110,10 +112,13 @@ t1 <- Sys.time()
 TP10k <- t( t(counts_healthy_subj) / cs )*10000
 t2 <- Sys.time()
 t2-t1
-log1pTP10k_healthy <- log( 1 + TP10k)
+log1pTP10k_healthy <- log( 1 + TP10k[,1:25000])
+log1pTP10k_healthy2 <- log( 1 + TP10k[,25001:ncol(TP10k)])
+rm(TP10k)
+log1pTP10k_healthy <- cbind(log1pTP10k_healthy,log1pTP10k_healthy2)
 t3 <- Sys.time()
 t3-t2
-rm(TP10k)
+rm(log1pTP10k_healthy2)
 ```
 This is darryl's log calculation.  Gemini says log_e is most common, but the original publication with this data used log_2. 
 
@@ -139,7 +144,7 @@ dim(counts_healthy_subj)
 50k cells
 
 Let's compute the mean by cell type.  Let's write this as a function I will use later.
-I have a factor variable, and want to sum the values in my matrix over the levels of the factor variable. Here the matrix is log-normalized counts of gene expression. The columns are cell types.
+I have a factor variable, and want to sum the values in my matrix over the levels of the factor variable (in columns). Here the matrix is log-normalized counts of gene expression. The columns are cell types.
 ```{r}
 
 sumM_over_groups <- function(dt, group.var, avg = TRUE){
@@ -163,78 +168,74 @@ sumM_over_groups <- function(dt, group.var, avg = TRUE){
         return(M_sum)
       }
 }
-#library(Matrix)
-# M and group_factor from the previous example
-
 
 cell_type <- factor(meta_epi_healthy_subj$Cluster)
-#G <- sparse.model.matrix(~ 0 + cell_type)
-#colnames(G) <- levels(cell_type) # Name columns after the groups
+M_avg <- sumM_over_groups(log1pTP10k_healthy,cell_type,avg=TRUE)
 
 
-
-print(head(M_avg_manual[, 1:2]))
+print(head(M_avg[, 1:2]))
 ```
 
 yes! This is darryl's file means_log1p_TP10k_by_celltype_Healthy.csv
 
-Now let's compute the mean by cell type adjusting for subject as a random effect
+Darryl wanted gene variance across cell types. Because there is variance due to batch,
+I want to compute the variance for each subject, and then average over subjects. First, let me write a function to get variance in sets of columns (by subject).
+
 ```{r}
-cell_type_subj <- factor(paste(meta_epi_healthy_subj$Cluster,
+varM_over_groups <- function(dt_avg, group.var){
+      # 1/(n-1) {sum xi^2 - n xbar^2}
+      #group.var <- subj
+      ni <- c(table(group.var))
+  
+      dt_avgsq <- dt_avg^2
+      #dt_avgsq <- M_avg_celltype_subj^2
+      term1 <- sumM_over_groups(dt_avgsq,group.var, avg = FALSE)
+  
+      xbar <- sumM_over_groups(dt_avg,group.var, avg = TRUE)
+      term2 <- xbar^2 
+      term2  <- t( t(term2) * ni )
+      
+      varM <- t( t(term1 - term2) / (ni - 1))
+      varM
+}
+```
+
+
+Compute average expression by cell type and subject. 
+```{r}
+celltype_subj <- factor(paste(meta_epi_healthy_subj$Cluster,
                                 meta_epi_healthy_subj$Subject,sep="_"))
-G <- sparse.model.matrix(~ 0 + cell_type_subj)
-colnames(G) <- levels(cell_type_subj) # Name columns after the groups
+M_avg_celltype_subj <- sumM_over_groups(log1pTP10k_healthy,celltype_subj,avg=TRUE)
 
-# 2. Calculate Column Sums for each group
-M_sum <- log1pTP10k_healthy %*% G
-
-# 3. Calculate Group Sizes
-group_sizes <- colSums(G)
-
-# 4. Normalize (Divide by group sizes)
-M_avg_manual <- sweep(M_sum, 2, group_sizes, FUN = "/")
-
-print(head(M_avg_manual[, 1:2]))
+print(head(M_avg_celltype_subj[, 1:2]))
 ```
 
-Average by subject
-```{r}
-library(purrr)
-covars <- strsplit(colnames(M_avg_manual),"_")
+Compute variance by subject.
+
+Create covariates for my columns.
+```{r make-pheno}
+covars <- strsplit(colnames(M_avg_celltype_subj),"_")
 cell_type <- unlist(lapply(covars,pluck,1))
+subj <- unlist(lapply(covars,pluck,2))
 table(cell_type)
+table(subj)
 ```
+
+7 subjects have 15 cell types and 5 subjects only have 14 cell types.
+
+Then we can compute gene variance across cell types for each subject and average over subjects.
 ```{r}
-cell_type <- factor(cell_type)
-G <- sparse.model.matrix(~ 0 + cell_type)
-colnames(G) <- levels(cell_type) # Name columns after the groups
-
-# 2. Calculate Column Sums for each group
-M_sum <- M_avg_manual %*% G
-
-# 3. Calculate Group Sizes
-group_sizes <- colSums(G)
-
-# 4. Normalize (Divide by group sizes)
-M_avg_cellbysubj <- sweep(M_sum, 2, group_sizes, FUN = "/")
-
-print(head(M_avg_cellbysubj[, 1:4]))
+subj <- factor(subj)
+subj_celltypeVar <- varM_over_groups(M_avg_celltype_subj,subj)
+avg_celltypeVar <- apply(subj_celltypeVar,1,mean)
+naive_celltypeVar <- apply(M_avg,1,var)
 ```
+
 
 ```{r}
-plot(M_avg_manual[,1],M_avg_cellbysubj[,1],main=colnames(M_avg_cellbysubj)[1])
-plot(M_avg_manual[,2],M_avg_cellbysubj[,2],main=colnames(M_avg_cellbysubj)[2])
-plot(M_avg_manual[,3],M_avg_cellbysubj[,3],main=colnames(M_avg_cellbysubj)[3])
-plot(M_avg_manual[,4],M_avg_cellbysubj[,4],main=colnames(M_avg_cellbysubj)[4])
-plot(M_avg_manual[,5],M_avg_cellbysubj[,5],main=colnames(M_avg_cellbysubj)[5])
-plot(M_avg_manual[,6],M_avg_cellbysubj[,6],main=colnames(M_avg_cellbysubj)[6])
-plot(M_avg_manual[,7],M_avg_cellbysubj[,7],main=colnames(M_avg_cellbysubj)[7])
-plot(M_avg_manual[,8],M_avg_cellbysubj[,8],main=colnames(M_avg_cellbysubj)[8])
+plot(avg_celltypeVar,naive_celltypeVar)
+abline(0,1,col=2)
 ```
 
 
-Really want random effect model mean, not average with equal weights
-```{r}
-cell_type_counts <- table(cell_type_subj)
-```
 

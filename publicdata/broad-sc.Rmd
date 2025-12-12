@@ -87,7 +87,7 @@ table(meta_epi$Health)
 
 50258 cells from healthy colon.
 
-I need to split the count matrix into a matrix of cells from healthy colons and a matrix of cells from UC patients.
+I need to split the count matrix into a matrix of cells from healthy colons and a matrix of cells from UC patients.  Let's do one at a time because the data are so big.
 
 ```{r}
 counts_healthy_subj <- counts_matrix[,meta_epi$Health=="Healthy"]
@@ -103,12 +103,16 @@ rm(counts_matrix)
 ```
 
 Darryl's TP10k = counts / cells total counts * 10k
-
-Instead of sweep, the following might be faster: t(t(M) / col_sums)
+This is also the formula used in the paper.  Kelly suggest we consider using sctransform instead. sctransform is the standard normalization method used by Seurat.
 ```{r}
 cs <- colSums(counts_healthy_subj)
-TP10k <- sweep(counts_healthy_subj, 2, cs, FUN = "/")*10000
+t1 <- Sys.time()
+TP10k <- t( t(counts_healthy_subj) / cs )*10000
+t2 <- Sys.time()
+t2-t1
 log1pTP10k_healthy <- log( 1 + TP10k)
+t3 <- Sys.time()
+t3-t2
 rm(TP10k)
 ```
 This is darryl's log calculation.  Gemini says log_e is most common, but the original publication with this data used log_2. 
@@ -122,7 +126,10 @@ tab
 ```
 
 ```{r}
-round(sweep(tab, 2, colSums(tab), FUN = "/"),3)
+cs <- colSums(tab)
+prps <- t( round( t(tab) / cs ,3))
+apply(prps,2,sum)
+prps
 ```
 
 For each cell type, estimate the mean expression from a random effects model with subject as a random effect. Now that I have log-transformed count data, should I use limma?  How many healthy cells were there?
@@ -131,25 +138,40 @@ dim(counts_healthy_subj)
 ```
 50k cells
 
-Let's compute the mean by cell type
+Let's compute the mean by cell type.  Let's write this as a function I will use later.
+I have a factor variable, and want to sum the values in my matrix over the levels of the factor variable. Here the matrix is log-normalized counts of gene expression. The columns are cell types.
 ```{r}
-library(Matrix)
+
+sumM_over_groups <- function(dt, group.var, avg = TRUE){
+  
+      # 1. Create the Grouping Matrix (G)
+      # sparse.model.matrix creates the indicator matrix efficiently
+      G <- sparse.model.matrix(~ 0 + group.var)
+      colnames(G) <- levels(group.var)
+       
+      # 2. Calculate Column Sums for each group
+      M_sum <- dt %*% G
+
+      if (avg) {
+        # 3. Calculate Group Sizes
+        group_sizes <- colSums(G)
+      
+        # 4. Normalize (Divide by group sizes)
+        M_avg <- t( t(M_sum) / group_sizes)
+        return(M_avg)
+      } else {
+        return(M_sum)
+      }
+}
+#library(Matrix)
 # M and group_factor from the previous example
 
-# 1. Create the Grouping Matrix (G)
-# sparse.model.matrix creates the indicator matrix efficiently
+
 cell_type <- factor(meta_epi_healthy_subj$Cluster)
-G <- sparse.model.matrix(~ 0 + cell_type)
-colnames(G) <- levels(cell_type) # Name columns after the groups
+#G <- sparse.model.matrix(~ 0 + cell_type)
+#colnames(G) <- levels(cell_type) # Name columns after the groups
 
-# 2. Calculate Column Sums for each group
-M_sum <- log1pTP10k_healthy %*% G
 
-# 3. Calculate Group Sizes
-group_sizes <- colSums(G)
-
-# 4. Normalize (Divide by group sizes)
-M_avg_manual <- sweep(M_sum, 2, group_sizes, FUN = "/")
 
 print(head(M_avg_manual[, 1:2]))
 ```
